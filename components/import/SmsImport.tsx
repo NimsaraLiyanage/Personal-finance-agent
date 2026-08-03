@@ -279,6 +279,7 @@ function Row({
           {message.issuer && <Chip>{message.issuer.label}</Chip>}
           {message.accountTail && <Chip>••{message.accountTail}</Chip>}
           {alreadyImported && <Chip tone="muted">Already imported</Chip>}
+          {message.cashWithdrawal && <Chip>Moves to cash, not spending</Chip>}
           {unsure && !foreign && <Chip tone="warn">Check this one</Chip>}
           {foreign && <Chip tone="warn">{message.currency} — add by hand</Chip>}
         </div>
@@ -351,6 +352,12 @@ function Outcome({ outcome }: { outcome: ImportOutcome }) {
         <strong className="font-semibold text-accent">
           {outcome.imported} {outcome.imported === 1 ? 'entry' : 'entries'} imported
         </strong>
+        {outcome.transfers > 0 && (
+          <span className="text-ink-dim">
+            {' '}
+            · {outcome.transfers} recorded as a move to cash rather than spending
+          </span>
+        )}
         {outcome.duplicates > 0 && (
           <span className="text-ink-dim">
             {' '}

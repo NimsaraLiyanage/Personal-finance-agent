@@ -10,7 +10,9 @@
 // context window and cost more than the tool call it saves.
 
 import { prisma } from '../db';
+import { listAccountBalances } from '../finance/accounts';
 import { listCategories, listCategoryRules } from '../finance/categories';
+import { EXCLUDE_TRANSFERS } from '../finance/queries';
 import { formatMoney } from '../money';
 import { monthBounds, nowInZone, formatDateInZone } from './time';
 import type { Category } from './types';
@@ -29,6 +31,8 @@ export interface AccountSnapshot {
   categories: Array<{ slug: string; label: string }>;
   /** Corrections they have already made. Repeating a fixed mistake is the worst failure here. */
   rules: Array<{ pattern: string; categorySlug: string }>;
+  /** Where their money sits. "How much have I got?" is answered from here. */
+  accounts: Array<{ name: string; kind: string; balanceMinor: number }>;
 }
 
 export async function loadAccountSnapshot(args: {
@@ -40,9 +44,15 @@ export async function loadAccountSnapshot(args: {
   const now = nowInZone(args.clientNow, args.timezone);
   const { start, end } = monthBounds(now, args.timezone);
 
-  const [transactions, budgets, latest, categories, rules] = await Promise.all([
+  const [transactions, budgets, latest, categories, rules, balances] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId: args.userId, occurredAt: { gte: start, lt: end } },
+      // Transfers excluded: the snapshot's "spent this month" has to agree with
+      // the dashboard's, and the dashboard does not count moving money.
+      where: {
+        userId: args.userId,
+        occurredAt: { gte: start, lt: end },
+        ...EXCLUDE_TRANSFERS,
+      },
       select: { kind: true, amountMinor: true, category: true },
     }),
     prisma.budget.findMany({
@@ -56,6 +66,12 @@ export async function loadAccountSnapshot(args: {
     }),
     listCategories(args.userId),
     listCategoryRules(args.userId),
+    listAccountBalances({
+      userId: args.userId,
+      currency: args.currency,
+      timezone: args.timezone,
+      now,
+    }),
   ]);
 
   const spentByCategory = new Map<string, number>();
@@ -94,6 +110,11 @@ export async function loadAccountSnapshot(args: {
       spentMinor: spentByCategory.get(b.category) ?? 0,
     })),
     lastTransactionAt: latest ? latest.occurredAt.toISOString() : null,
+    accounts: balances.accounts.map((a) => ({
+      name: a.name,
+      kind: a.kind,
+      balanceMinor: a.balanceMinor,
+    })),
     categories: categories.map((c) => ({ slug: c.slug, label: c.label })),
     // Capped: the snapshot must not grow with the ledger.
     rules: rules
@@ -116,6 +137,16 @@ export function renderSnapshot(snapshot: AccountSnapshot, timezone: string): str
     `Income: ${money(snapshot.monthIncomeMinor)}`,
     `Net: ${money(snapshot.monthIncomeMinor - snapshot.monthSpentMinor)}`,
   ];
+
+  if (snapshot.accounts.length > 0) {
+    lines.push(
+      '',
+      '### Their accounts',
+      ...snapshot.accounts.map((a) => `- ${a.name} (${a.kind}): ${money(a.balanceMinor)}`),
+      'These balances are current. Answer "how much have I got" from them and do',
+      'not add them up unless asked for a total.',
+    );
+  }
 
   if (snapshot.categories.length > 0) {
     lines.push(

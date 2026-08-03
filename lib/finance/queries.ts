@@ -51,6 +51,19 @@ export interface FlowPoint {
   formattedNet: string;
 }
 
+// ── Transfers ───────────────────────────────────────────────────────────────
+
+/**
+ * The filter that keeps transfers out of income and expense figures.
+ *
+ * Both halves of a transfer are ordinary rows with a `kind`, so *any* query
+ * that adds up money must say this out loud or it will count moving Rs 5,000
+ * from the bank to a pocket as both Rs 5,000 earned and Rs 5,000 spent.
+ *
+ * Balances are the deliberate exception — see lib/finance/accounts.ts.
+ */
+export const EXCLUDE_TRANSFERS = { transferGroupId: null } as const;
+
 // ── Row shaping ─────────────────────────────────────────────────────────────
 
 interface TransactionRow {
@@ -62,6 +75,8 @@ interface TransactionRow {
   category: string;
   note: string | null;
   occurredAt: Date;
+  transferGroupId?: string | null;
+  account?: { name: string } | null;
 }
 
 export function toTransactionView(t: TransactionRow): TransactionView {
@@ -75,7 +90,30 @@ export function toTransactionView(t: TransactionRow): TransactionView {
     category: t.category as Category,
     note: t.note,
     occurredAt: t.occurredAt.toISOString(),
+    transfer: Boolean(t.transferGroupId),
+    accountName: t.account?.name ?? null,
   };
+}
+
+/** Rows joined to their account name, which every list wants and no sum does. */
+const WITH_ACCOUNT = { account: { select: { name: true } } } as const;
+
+/**
+ * One row per transfer instead of two.
+ *
+ * A transfer is stored as a pair — money leaving one account and arriving in
+ * another — but to a reader it is a single event, and a statement that lists
+ * "Transfer Rs 5,000" twice looks like a bug even though the totals are right.
+ * The outgoing leg survives, because "→ Cash" is how a person describes it.
+ *
+ * Not applied to account-scoped lists: there, the leg that belongs to the
+ * account being viewed is the one that matters, and collapsing would hide the
+ * incoming half of every transfer into that account.
+ */
+function collapseTransferLegs<T extends { transferGroupId: string | null; kind: string }>(
+  rows: T[],
+): T[] {
+  return rows.filter((row) => !row.transferGroupId || row.kind === 'expense');
 }
 
 // ── Budgets ─────────────────────────────────────────────────────────────────
@@ -100,6 +138,7 @@ export async function buildBudgetStatus(
       kind: 'expense',
       category,
       occurredAt: { gte: start, lt: end },
+      ...EXCLUDE_TRANSFERS,
     },
     _sum: { amountMinor: true },
   });
@@ -144,7 +183,11 @@ export async function buildSpendingSummary(
 
   const [rows, previousAgg] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId: scope.userId, occurredAt: { gte: window.from, lt: window.to } },
+      where: {
+        userId: scope.userId,
+        occurredAt: { gte: window.from, lt: window.to },
+        ...EXCLUDE_TRANSFERS,
+      },
       select: { kind: true, amountMinor: true, category: true },
     }),
     window.previousFrom
@@ -153,6 +196,7 @@ export async function buildSpendingSummary(
             userId: scope.userId,
             kind: 'expense',
             occurredAt: { gte: window.previousFrom, lt: window.previousTo! },
+            ...EXCLUDE_TRANSFERS,
           },
           _sum: { amountMinor: true },
         })
@@ -295,6 +339,7 @@ export async function buildFlowSeries(
       userId: scope.userId,
       occurredAt: { gte: spans[0].from, lt: spans[spans.length - 1].to },
       ...(options.category ? { category: options.category } : {}),
+      ...EXCLUDE_TRANSFERS,
     },
     select: { kind: true, amountMinor: true, occurredAt: true },
   });
@@ -349,17 +394,22 @@ export async function listTransactionsInRange(
   const rows = await prisma.transaction.findMany({
     where: { userId: scope.userId, occurredAt: { gte: from, lt: to } },
     orderBy: { occurredAt: 'asc' },
+    include: WITH_ACCOUNT,
   });
 
+  // Transfers are listed but not totalled. They belong on the statement —
+  // something did happen — and in neither money column, because nothing was
+  // earned or spent. The table renders them with a dash in both.
   let incomeMinor = 0;
   let expenseMinor = 0;
   for (const row of rows) {
+    if (row.transferGroupId) continue;
     if (row.kind === 'income') incomeMinor += row.amountMinor;
     else expenseMinor += row.amountMinor;
   }
 
   return {
-    transactions: rows.map(toTransactionView),
+    transactions: collapseTransferLegs(rows).map(toTransactionView),
     incomeMinor,
     expenseMinor,
     netMinor: incomeMinor - expenseMinor,
@@ -372,6 +422,9 @@ export async function listTransactions(
     period?: PeriodKey;
     category?: string;
     merchantContains?: string;
+    accountId?: string;
+    /** Transfers are listed by default; a spending question should pass false. */
+    includeTransfers?: boolean;
     limit?: number;
   } = {},
 ): Promise<{ transactions: TransactionView[]; periodLabel: string }> {
@@ -381,16 +434,19 @@ export async function listTransactions(
       userId: scope.userId,
       occurredAt: { gte: window.from, lt: window.to },
       ...(options.category ? { category: options.category } : {}),
+      ...(options.accountId ? { accountId: options.accountId } : {}),
       ...(options.merchantContains
         ? { merchant: { contains: options.merchantContains, mode: 'insensitive' as const } }
         : {}),
+      ...(options.includeTransfers === false ? EXCLUDE_TRANSFERS : {}),
     },
     orderBy: { occurredAt: 'desc' },
     take: Math.min(options.limit ?? 20, 100),
+    include: WITH_ACCOUNT,
   });
 
   return {
-    transactions: rows.map(toTransactionView),
+    transactions: (options.accountId ? rows : collapseTransferLegs(rows)).map(toTransactionView),
     periodLabel: window.label,
   };
 }

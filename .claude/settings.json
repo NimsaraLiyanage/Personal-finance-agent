@@ -5,7 +5,9 @@
       "Bash(curl -s -o /private/tmp/claude-501/-Users-nimsaraliyanage-Documents-Developer-Personal-finance-agent/d62f9700-eb3d-455f-b468-00f8b474c316/scratchpad/page.html -w \"%{http_code}\\\\n\" http://localhost:3111/)",
       "Bash(xargs -r kill)",
       "Bash(echo \"exit=$?\")",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(npx prisma *)",
+      "Bash(docker compose *)"
     ]
   }
 }

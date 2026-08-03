@@ -36,8 +36,65 @@ model User {
   insights       Insight[]
   categories     Category[]
   categoryRules  CategoryRule[]
+  accounts       Account[]
 
   @@map("users")
+}
+
+// ── Accounts ────────────────────────────────────────────────────────────────
+// Where the money actually sits: cash in a pocket, a bank account, a card, a
+// mobile wallet. Two things need this and neither works without it.
+//
+// A **balance** is the obvious one. A ledger that only records deltas can tell
+// you what you spent but never what you have, which is the question people
+// actually open the app to answer.
+//
+// A **transfer** is the subtle one. Taking Rs 5,000 out of an ATM is not
+// spending Rs 5,000 — it is the same money in a different pocket. Without
+// accounts there is nowhere for it to go, so it gets recorded as an expense and
+// then spent a second time when it is used. Every month you visit an ATM, the
+// ledger overstates your spending. With accounts it becomes a pair of rows that
+// move a balance and count as neither income nor expense.
+
+enum AccountKind {
+  cash
+  bank
+  card
+  wallet
+}
+
+model Account {
+  id     String @id @default(cuid())
+  userId String
+
+  name String
+  kind AccountKind @default(bank)
+
+  /// Last 4 digits as the bank masks them in its SMS. This is what routes an
+  /// imported message to the right card without asking every time.
+  last4 String?
+
+  currency String
+
+  /// What was in it when tracking started. A balance is this plus everything
+  /// recorded since; without it, every account starts life pretending to be
+  /// empty and the number on screen is wrong from day one.
+  openingBalanceMinor Int @default(0)
+
+  /// Preselected in forms. Exactly one per user, enforced in code.
+  isDefault Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  /// Closed accounts keep their history and stop appearing in pickers.
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId, archivedAt])
+  @@map("accounts")
 }
 
 // ── Categories ──────────────────────────────────────────────────────────────
@@ -141,11 +198,26 @@ model Transaction {
   /// NULLs repeat, so hand entry is unaffected.
   importKey String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Which pocket it came out of. Optional: everything logged before accounts
+  /// existed has no answer, and inventing one would be a lie about their money.
+  accountId String?
+
+  /// The two halves of a transfer share this id.
+  ///
+  /// Both halves move balances — that is the whole point — but neither counts
+  /// as income or expense, because moving your own money is not earning or
+  /// spending it. Every aggregate in lib/finance/queries.ts filters on
+  /// `transferGroupId: null` for exactly that reason.
+  transferGroupId String?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@unique([userId, importKey])
   @@index([userId, occurredAt])
   @@index([userId, category, occurredAt])
+  @@index([userId, accountId])
+  @@index([transferGroupId])
   @@map("transactions")
 }
 

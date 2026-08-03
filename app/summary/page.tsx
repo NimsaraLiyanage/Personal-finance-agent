@@ -105,18 +105,36 @@ export default async function SummaryPage({
                   return (
                     <tr key={t.id} className="transition-colors hover:bg-surface">
                       <td className="px-4 py-2.5">
-                        <div className="truncate">{t.merchant ?? capitalise(t.category)}</div>
+                        <div className="truncate">
+                          {t.transfer && <span className="text-ink-faint">Transfer </span>}
+                          {t.merchant ?? capitalise(t.category)}
+                        </div>
                         <div className="text-xs capitalize text-ink-faint">
-                          {dayFormat.format(new Date(t.occurredAt))} · {t.category}
+                          {dayFormat.format(new Date(t.occurredAt))}
+                          {t.accountName ? ` · ${t.accountName}` : ''}
+                          {t.transfer ? '' : ` · ${t.category}`}
                           {t.note ? ` · ${t.note}` : ''}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-right tnum text-accent">
-                        {income ? t.formatted : ''}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tnum">
-                        {income ? '' : t.formatted}
-                      </td>
+
+                      {/* A transfer sits in neither column and is in neither
+                          total: your own money changing pocket is not income
+                          and not spending. It stays on the page because it did
+                          happen and a balance moved. */}
+                      {t.transfer ? (
+                        <td colSpan={2} className="px-4 py-2.5 text-right text-xs tnum text-ink-faint">
+                          {t.formatted} moved
+                        </td>
+                      ) : (
+                        <>
+                          <td className="px-4 py-2.5 text-right tnum text-accent">
+                            {income ? t.formatted : ''}
+                          </td>
+                          <td className="px-4 py-2.5 text-right tnum">
+                            {income ? '' : t.formatted}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   );
                 })}

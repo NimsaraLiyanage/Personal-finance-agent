@@ -41,6 +41,9 @@ export interface TransactionView {
   category: Category;
   note: string | null;
   occurredAt: string;
+  /** Half of a move between the user's own accounts — neither in nor out. */
+  transfer: boolean;
+  accountName: string | null;
 }
 
 export interface CategoryTotal {

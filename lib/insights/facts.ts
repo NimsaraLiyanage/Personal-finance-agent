@@ -13,6 +13,7 @@ import { formatMoney } from '../money';
 import { addDays, monthBounds, startOfDay } from '../agent/time';
 import {
   buildSpendingSummary,
+  EXCLUDE_TRANSFERS,
   listBudgetStatuses,
   monthProgress,
   type LedgerScope,
@@ -95,7 +96,11 @@ export async function gatherBriefingFacts(scope: LedgerScope): Promise<BriefingF
 
   const [rows, monthSummary, budgetStatuses, recurring] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId: scope.userId, occurredAt: { gte: previousStart, lt: end } },
+      where: {
+        userId: scope.userId,
+        occurredAt: { gte: previousStart, lt: end },
+        ...EXCLUDE_TRANSFERS,
+      },
       select: {
         kind: true,
         amountMinor: true,
@@ -234,6 +239,8 @@ async function findRecurringCharges(scope: LedgerScope): Promise<RecurringCharge
       kind: 'expense',
       merchant: { not: null },
       occurredAt: { gte: from },
+      // A weekly move between your own accounts is not a subscription.
+      ...EXCLUDE_TRANSFERS,
     },
     select: { merchant: true, amountMinor: true, occurredAt: true },
   });

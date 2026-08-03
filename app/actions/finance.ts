@@ -16,6 +16,15 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/db';
+import {
+  archiveAccount,
+  createAccount,
+  defaultAccountId,
+  recordTransfer,
+  reopenAccount,
+  resolveAccount,
+  setDefaultAccount,
+} from '@/lib/finance/accounts';
 import { acknowledgeReminder, deleteReminder } from '@/lib/finance/reminders';
 import { toMinor } from '@/lib/money';
 import { resolveUser, SESSION_COOKIE } from '@/lib/session';
@@ -53,6 +62,7 @@ const TransactionSchema = z.object({
   category: z.string().trim().min(1).max(40),
   merchant: z.string().trim().max(80).optional(),
   note: z.string().trim().max(200).optional(),
+  accountId: z.string().trim().optional(),
   occurredOn: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD.')
@@ -66,6 +76,7 @@ export async function addTransaction(formData: FormData): Promise<ActionResult> 
     category: formData.get('category'),
     merchant: formData.get('merchant') || undefined,
     note: formData.get('note') || undefined,
+    accountId: formData.get('accountId') || undefined,
     occurredOn: formData.get('occurredOn') || undefined,
   });
 
@@ -81,6 +92,12 @@ export async function addTransaction(formData: FormData): Promise<ActionResult> 
     merchant: parsed.data.merchant,
   });
 
+  // `resolveAccount` returns null for an id that isn't theirs, so a tampered
+  // form body falls back to their default rather than writing to a stranger's.
+  const accountId =
+    (await resolveAccount(userId, parsed.data.accountId)) ??
+    (await defaultAccountId(userId, currency));
+
   await prisma.transaction.create({
     data: {
       userId,
@@ -92,9 +109,114 @@ export async function addTransaction(formData: FormData): Promise<ActionResult> 
       note: parsed.data.note || null,
       occurredAt: parseOccurredAt(parsed.data.occurredOn, new Date(), timezone),
       source: 'manual',
+      accountId,
     },
   });
 
+  refresh();
+  return { ok: true };
+}
+
+// ── Accounts ────────────────────────────────────────────────────────────────
+
+const AccountSchema = z.object({
+  name: z.string().trim().min(1, 'Give the account a name.').max(40),
+  kind: z.enum(['cash', 'bank', 'card', 'wallet']),
+  last4: z.string().trim().max(24).optional(),
+  openingBalance: z.coerce.number().optional(),
+});
+
+export async function addAccount(formData: FormData): Promise<ActionResult> {
+  const parsed = AccountSchema.safeParse({
+    name: formData.get('name'),
+    kind: formData.get('kind'),
+    last4: formData.get('last4') || undefined,
+    openingBalance: formData.get('openingBalance') || undefined,
+  });
+
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check the form and try again.' };
+  }
+
+  const { userId, currency } = await session();
+  const result = await createAccount(userId, {
+    name: parsed.data.name,
+    kind: parsed.data.kind,
+    last4: parsed.data.last4 ?? null,
+    // Opening balances can legitimately be negative — that is what a credit
+    // card with something on it looks like.
+    openingBalanceMinor: parsed.data.openingBalance
+      ? toMinor(parsed.data.openingBalance, currency)
+      : 0,
+    currency,
+  });
+
+  if (!result.ok) return { ok: false, error: result.error };
+  refresh();
+  return { ok: true };
+}
+
+export async function closeAccount(id: string): Promise<ActionResult> {
+  const { userId } = await session();
+  const ok = await archiveAccount(userId, id);
+  if (!ok) return { ok: false, error: 'That account is already closed.' };
+  refresh();
+  return { ok: true };
+}
+
+export async function reopenClosedAccount(id: string): Promise<ActionResult> {
+  const { userId } = await session();
+  const ok = await reopenAccount(userId, id);
+  if (!ok) return { ok: false, error: 'That account is already open.' };
+  refresh();
+  return { ok: true };
+}
+
+export async function makeAccountDefault(id: string): Promise<ActionResult> {
+  const { userId } = await session();
+  const ok = await setDefaultAccount(userId, id);
+  if (!ok) return { ok: false, error: 'That account no longer exists.' };
+  refresh();
+  return { ok: true };
+}
+
+const TransferSchema = z.object({
+  fromAccountId: z.string().trim().min(1, 'Pick where the money left.'),
+  toAccountId: z.string().trim().min(1, 'Pick where the money went.'),
+  amount: z.coerce.number().positive('Amount must be greater than zero.'),
+  occurredOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD.')
+    .optional(),
+  note: z.string().trim().max(200).optional(),
+});
+
+export async function transferBetweenAccounts(formData: FormData): Promise<ActionResult> {
+  const parsed = TransferSchema.safeParse({
+    fromAccountId: formData.get('fromAccountId'),
+    toAccountId: formData.get('toAccountId'),
+    amount: formData.get('amount'),
+    occurredOn: formData.get('occurredOn') || undefined,
+    note: formData.get('note') || undefined,
+  });
+
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check the form and try again.' };
+  }
+
+  const { userId, currency, timezone } = await session();
+  const result = await recordTransfer(
+    { userId, currency },
+    {
+      fromAccountId: parsed.data.fromAccountId,
+      toAccountId: parsed.data.toAccountId,
+      amountMinor: toMinor(parsed.data.amount, currency),
+      occurredAt: parseOccurredAt(parsed.data.occurredOn, new Date(), timezone),
+      note: parsed.data.note ?? null,
+    },
+  );
+
+  if (!result.ok) return { ok: false, error: result.error };
   refresh();
   return { ok: true };
 }

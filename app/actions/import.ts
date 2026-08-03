@@ -18,6 +18,12 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/db';
+import {
+  defaultAccountId,
+  findAccountByKind,
+  matchAccountByLast4,
+  recordTransfer,
+} from '@/lib/finance/accounts';
 import { resolveCategory } from '@/lib/finance/categories';
 import { formatDateInZone, parseOccurredAt } from '@/lib/agent/time';
 import { parseMessage } from '@/lib/import/sms';
@@ -64,6 +70,8 @@ export interface ImportOutcome {
   imported: number;
   /** Already in the ledger from an earlier paste. */
   duplicates: number;
+  /** ATM withdrawals recorded as a move to cash rather than as spending. */
+  transfers: number;
   /** Couldn't be turned into an entry, with the reason to show. */
   rejected: Array<{ raw: string; reason: string }>;
   error?: string;
@@ -74,14 +82,29 @@ export async function importMessages(
 ): Promise<ImportOutcome> {
   const parsedInput = BatchSchema.safeParse(items);
   if (!parsedInput.success) {
-    return { ok: false, imported: 0, duplicates: 0, rejected: [], error: 'Nothing to import.' };
+    return {
+      ok: false,
+      imported: 0,
+      duplicates: 0,
+      transfers: 0,
+      rejected: [],
+      error: 'Nothing to import.',
+    };
   }
 
   const { userId, currency, timezone } = await session();
   const now = new Date();
   const today = formatDateInZone(now, timezone);
 
+  // Resolved once for the batch: a paste is dozens of messages and these are
+  // the same two answers every time. Sequential on purpose — the first call
+  // seeds the starting Cash account, and the second has to see it.
+  const fallbackAccountId = await defaultAccountId(userId, currency);
+  const cashAccountId = await findAccountByKind(userId, 'cash');
+
   const rejected: ImportOutcome['rejected'] = [];
+  let transfers = 0;
+  let transferDuplicates = 0;
   const rows: Array<{
     userId: string;
     kind: 'expense' | 'income';
@@ -93,6 +116,7 @@ export async function importMessages(
     occurredAt: Date;
     source: string;
     importKey: string;
+    accountId: string | null;
   }> = [];
 
   // Two identical messages in ONE paste are two real transactions — a person
@@ -126,6 +150,38 @@ export async function importMessages(
     seenInBatch.set(parsed.fingerprint, count);
     const importKey = count === 1 ? `sms:${parsed.fingerprint}` : `sms:${parsed.fingerprint}#${count}`;
 
+    // The card the bank masked, if it belongs to an account they set up.
+    const matchedAccountId = await matchAccountByLast4(userId, parsed.accountTail);
+    const accountId = matchedAccountId ?? fallbackAccountId;
+
+    // An ATM withdrawal moved money between two of their own pockets. Recorded
+    // as a transfer when both ends are known, so the month is not overstated
+    // once at the machine and again when the cash gets spent.
+    if (parsed.cashWithdrawal && cashAccountId && accountId && accountId !== cashAccountId) {
+      const moved = await recordTransfer(
+        { userId, currency },
+        {
+          fromAccountId: accountId,
+          toAccountId: cashAccountId,
+          amountMinor: parsed.amountMinor,
+          occurredAt: parseOccurredAt(parsed.occurredOn ?? today, now, timezone),
+          note: parsed.raw.slice(0, 200),
+          source: 'sms',
+          importKey,
+        },
+      );
+      if (moved.ok) {
+        transfers++;
+        continue;
+      }
+      if (moved.duplicate) {
+        transferDuplicates++;
+        continue;
+      }
+      // Anything else falls through to an ordinary expense — a recorded expense
+      // beats a silently dropped withdrawal.
+    }
+
     rows.push({
       userId,
       kind: parsed.kind,
@@ -139,11 +195,22 @@ export async function importMessages(
       occurredAt: parseOccurredAt(parsed.occurredOn ?? today, now, timezone),
       source: 'sms',
       importKey,
+      accountId,
     });
   }
 
   if (rows.length === 0) {
-    return { ok: rejected.length === 0, imported: 0, duplicates: 0, rejected };
+    if (transfers > 0) {
+      revalidatePath('/');
+      revalidatePath('/summary');
+    }
+    return {
+      ok: rejected.length === 0,
+      imported: transfers,
+      duplicates: transferDuplicates,
+      transfers,
+      rejected,
+    };
   }
 
   const existing = await prisma.transaction.findMany({
@@ -163,8 +230,9 @@ export async function importMessages(
 
   return {
     ok: true,
-    imported: count,
-    duplicates: rows.length - count,
+    imported: count + transfers,
+    duplicates: rows.length - count + transferDuplicates,
+    transfers,
     rejected,
   };
 }

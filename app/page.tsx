@@ -6,6 +6,7 @@
 
 import Link from 'next/link';
 
+import AccountsPanel from '@/components/dashboard/AccountsPanel';
 import AddTransaction from '@/components/dashboard/AddTransaction';
 import BriefingCard from '@/components/dashboard/BriefingCard';
 import BudgetsPanel from '@/components/dashboard/BudgetsPanel';
@@ -24,6 +25,7 @@ import {
   listTransactions,
   type LedgerScope,
 } from '@/lib/finance/queries';
+import { listAccountBalances, listArchivedAccounts } from '@/lib/finance/accounts';
 import { parsePeriod, trendShapeFor } from '@/lib/finance/periods';
 import { DEFAULT_CATEGORY_OPTIONS, listCategories } from '@/lib/finance/categories';
 import { listActiveReminders } from '@/lib/finance/reminders';
@@ -63,15 +65,18 @@ export default async function DashboardPage({
   };
   const trend = trendShapeFor(period);
 
-  const [summary, flow, budgets, ledger, reminders, briefing, categories] = await Promise.all([
-    buildSpendingSummary(scope, period),
-    buildFlowSeries(scope, { granularity: trend.granularity, buckets: trend.buckets }),
-    listBudgetStatuses(scope),
-    listTransactions(scope, { period, limit: 25 }),
-    listActiveReminders(scope),
-    latestBriefing(user.userId),
-    listCategories(user.userId),
-  ]);
+  const [summary, flow, budgets, ledger, reminders, briefing, categories, balances, closedAccounts] =
+    await Promise.all([
+      buildSpendingSummary(scope, period),
+      buildFlowSeries(scope, { granularity: trend.granularity, buckets: trend.buckets }),
+      listBudgetStatuses(scope),
+      listTransactions(scope, { period, limit: 25 }),
+      listActiveReminders(scope),
+      latestBriefing(user.userId),
+      listCategories(user.userId),
+      listAccountBalances(scope),
+      listArchivedAccounts(user.userId),
+    ]);
 
   const net = summary.netMinor;
 
@@ -135,9 +140,18 @@ export default async function DashboardPage({
         </div>
 
         <div className="space-y-4">
+          <AccountsPanel
+            accounts={balances.accounts}
+            closed={closedAccounts}
+            unassignedMinor={balances.unassignedMinor}
+            unassignedCount={balances.unassignedCount}
+            currency={user.currency}
+            today={formatDateInZone(new Date(), user.timezone)}
+          />
           <AddTransaction
             today={formatDateInZone(new Date(), user.timezone)}
             categories={categories}
+            accounts={balances.accounts}
           />
           <UpcomingReminders reminders={reminders.upcoming} timezone={user.timezone} />
           <BudgetsPanel budgets={budgets} categories={categories} />

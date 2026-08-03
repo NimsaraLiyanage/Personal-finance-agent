@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 
 import { addTransaction } from '@/app/actions/finance';
 import DatePicker from '@/components/ui/DatePicker';
+import type { AccountOption } from '@/lib/finance/account-types';
 import type { CategoryOption } from '@/lib/finance/categories';
 
 // Manual entry, for when typing a sentence to the assistant is more ceremony
@@ -12,9 +13,12 @@ import type { CategoryOption } from '@/lib/finance/categories';
 export default function AddTransaction({
   today,
   categories,
+  accounts = [],
 }: {
   today: string;
   categories: CategoryOption[];
+  /** Empty before the user row exists — the action falls back to their default. */
+  accounts?: AccountOption[];
 }) {
   const form = useRef<HTMLFormElement>(null);
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
@@ -137,6 +141,24 @@ export default function AddTransaction({
             </div>
           )}
         </Field>
+
+        {/* Only worth a field once there is a choice to make. With one account
+            the action assigns it anyway, so a locked dropdown would be noise. */}
+        {accounts.length > 1 && (
+          <Field label="Account">
+            <select
+              name="accountId"
+              defaultValue={accounts.find((a) => a.isDefault)?.id ?? accounts[0]?.id}
+              className={inputClass}
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         <Field label="Merchant or note" optional>
           <input name="merchant" type="text" placeholder="Keells, rent, payday…" className={inputClass} />

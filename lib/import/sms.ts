@@ -44,6 +44,12 @@ export interface ParsedMessage {
   issuer: { id: string; label: string } | null;
   /** Best guess. Always overridable in review, and a user rule beats it. */
   category: string;
+  /**
+   * Cash leaving an account rather than being spent. The caller turns this
+   * into a transfer when the person has a cash account to move it to — see
+   * app/actions/import.ts.
+   */
+  cashWithdrawal: boolean;
   /** 0–1. Below LOW_CONFIDENCE the row arrives unticked. */
   confidence: number;
   /** Things a person should know before ticking the box. */
@@ -611,14 +617,14 @@ export function parseMessage(
 
   const masked = mask(text, claimed);
 
-  // Cash out of an ATM is not really spending — it is money changing pocket.
-  // Without an accounts model there is nowhere else to put it, so it lands as
-  // an expense and says so rather than pretending.
+  // Cash out of an ATM is not spending — it is money changing pocket, and
+  // counting it as an expense overstates the month twice: once at the machine
+  // and again when the cash is actually used. Flagged here, turned into a
+  // transfer by the caller, which is the layer that knows about accounts.
   const cashWithdrawal = kind === 'expense' && /\batm\b|\bcash withdrawal\b|\bwithdraw(?:n|al)?\b/i.test(text);
   let merchant = findMerchant(masked, kind);
   if (cashWithdrawal) {
     merchant ??= 'ATM withdrawal';
-    notes.push('Cash withdrawal — recorded as an expense until wallets exist.');
   }
 
   if (date && date.iso > todayIso) {
@@ -661,6 +667,7 @@ export function parseMessage(
     occurredAtTime: time?.value ?? null,
     accountTail: account?.tail ?? null,
     issuer,
+    cashWithdrawal,
     category: guessCategory(kind, merchant, text),
     confidence: clamp(Number(confidence.toFixed(2)), 0.05, 0.99),
     notes,

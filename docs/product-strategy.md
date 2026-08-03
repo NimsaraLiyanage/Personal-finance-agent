@@ -167,7 +167,7 @@ These are missing today and each one blocks something above:
 
 | Gap | Why it matters |
 |---|---|
-| **No accounts / wallets** | Cash vs. card vs. bank account. Every competitor has it, and SMS import *requires* it — you must know which card was charged. |
+| ~~**No accounts / wallets**~~ | Done. `Account` + per-account balances, and transfers as a linked pair excluded from every spending figure. SMS import routes by the masked card tail, and an ATM withdrawal is now a move to cash rather than a phantom expense. |
 | **No recurring / subscription model** | Not in the schema. Needed for "forgotten subscriptions." |
 | **No user-level agent memory** | Thread summaries exist; durable corrections and preferences do not. |
 | ~~**Fixed category enum**~~ | Done. `Category` + `CategoryRule`, user-owned, with learned corrections. |
@@ -193,9 +193,10 @@ These are missing today and each one blocks something above:
    build reuses the file as-is and only supplies a different input pipe. The
    remaining mobile work is the Android permission and the listener, which is
    the part that could never have been validated from a laptop anyway.
-5. **Accounts/wallets** — do this with or just before SMS import, not after.
-   Import already reads the masked card tail off each message and throws it
-   away, because there is nowhere to put it. That is the next thing to build.
+5. ~~**Accounts/wallets**~~ — done, right after import rather than before it,
+   which turned out to be the better order: the importer had already surfaced
+   exactly what accounts needed to support (a masked card tail to route on, and
+   ATM withdrawals that must not read as spending).
 
 ---
 

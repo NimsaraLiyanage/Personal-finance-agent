@@ -30,6 +30,7 @@ import {
 } from '../finance/queries';
 import { formatMoney, toMinor } from '../money';
 import { rememberCategoryRule, resolveCategory } from '../finance/categories';
+import { defaultAccountId, recordTransfer, resolveAccount } from '../finance/accounts';
 import type {
   BudgetStatus,
   PendingClientAction,
@@ -104,6 +105,13 @@ export function buildTools(runtime: ToolRuntime) {
           merchant: input.merchant,
         });
 
+        // Named account if they named one, otherwise their default. Falling back
+        // to "no account" would leave balances frozen while the ledger fills up,
+        // which is the one thing an accounts feature must not do.
+        const accountId =
+          (await resolveAccount(runtime.userId, input.account)) ??
+          (await defaultAccountId(runtime.userId, runtime.currency));
+
         const created = await prisma.transaction.create({
           data: {
             userId: runtime.userId,
@@ -115,7 +123,9 @@ export function buildTools(runtime: ToolRuntime) {
             note: input.note?.trim() || null,
             occurredAt: at,
             source: input.source ?? 'chat',
+            accountId,
           },
+          include: { account: { select: { name: true } } },
         });
 
         const view = toTransactionView(created);
@@ -178,7 +188,57 @@ export function buildTools(runtime: ToolRuntime) {
           .describe(
             'ISO date (YYYY-MM-DD) when the money actually moved. Resolve relative dates like "yesterday" against today\'s date in the snapshot. Omit if it just happened.',
           ),
+        account: z
+          .string()
+          .optional()
+          .describe(
+            'Which account it came out of, by name, if they said ("on the Amex", "cash"). The account names are in the snapshot. Omit to use their default.',
+          ),
         source: z.enum(['chat', 'voice', 'manual']).optional(),
+      }),
+    },
+  );
+
+  // ---- transfer_money -----------------------------------------------------
+
+  const transferMoney = tool(
+    async (input) => {
+      const amountMinor = toMinor(input.amount, runtime.currency);
+      if (amountMinor <= 0) return 'Amount must be greater than zero.';
+
+      const [fromId, toId] = await Promise.all([
+        resolveAccount(runtime.userId, input.from_account),
+        resolveAccount(runtime.userId, input.to_account),
+      ]);
+      if (!fromId) return `There is no account called "${input.from_account}".`;
+      if (!toId) return `There is no account called "${input.to_account}".`;
+
+      const at = parseOccurredAt(input.occurred_on, nowInZone(runtime.clientNow, runtime.timezone), runtime.timezone);
+      const result = await recordTransfer(
+        { userId: runtime.userId, currency: runtime.currency },
+        { fromAccountId: fromId, toAccountId: toId, amountMinor, occurredAt: at, source: 'chat' },
+      );
+      if (!result.ok) return result.error ?? 'Could not record that transfer.';
+
+      push(runtime, { type: 'navigate', screen: 'transactions' });
+      return `Moved ${money(amountMinor)} from ${input.from_account} to ${input.to_account}. It changes both balances and is not counted as spending.`;
+    },
+    {
+      name: 'transfer_money',
+      description: [
+        'Move money between two of the user\'s OWN accounts — an ATM withdrawal, a',
+        'top-up, moving pay into savings. Use this instead of log_transaction whenever',
+        'the money stayed theirs, because a transfer must not count as spending.',
+        '"I took 5000 out of the ATM" is a transfer from the bank to cash, not an expense.',
+      ].join(' '),
+      schema: z.object({
+        amount: z.number().positive().describe('Positive decimal, exactly as stated.'),
+        from_account: z.string().describe('Account name money left, as listed in the snapshot.'),
+        to_account: z.string().describe('Account name money arrived in.'),
+        occurred_on: z
+          .string()
+          .optional()
+          .describe('ISO date (YYYY-MM-DD). Omit if it just happened.'),
       }),
     },
   );
@@ -591,6 +651,7 @@ export function buildTools(runtime: ToolRuntime) {
 
   return [
     logTransaction,
+    transferMoney,
     getSpendingSummary,
     listTransactions,
     setBudget,
