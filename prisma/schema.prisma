@@ -33,6 +33,7 @@ model User {
   budgets      Budget[]
   threads      ChatThread[]
   reminders    Reminder[]
+  insights     Insight[]
 
   @@map("users")
 }
@@ -145,6 +146,44 @@ model ChatMessage {
 
   @@index([threadId, createdAt])
   @@map("chat_messages")
+}
+
+// ── Insights ────────────────────────────────────────────────────────────────
+// The proactive side of the agent: something it worked out and wants to say
+// without being asked. Persisted rather than generated on read, because the
+// point is that it was true at a moment in time — a briefing that silently
+// rewrites itself every page load is a dashboard, not a briefing.
+
+model Insight {
+  id     String @id @default(cuid())
+  userId String
+
+  /// `weekly_briefing` today; anomaly and subscription kinds will land here.
+  kind String @default("weekly_briefing")
+
+  /// The window it covers.
+  periodStart DateTime
+  periodEnd   DateTime
+
+  headline String
+  body      String @db.Text
+
+  /// The fact sheet the prose was written from. Kept so any number in the text
+  /// can be traced back to what produced it — an LLM that writes finance copy
+  /// must never be the only record of where a figure came from.
+  facts Json?
+
+  /// Idempotency: one briefing per user per window, however often the job runs.
+  dedupeKey String
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@map("insights")
 }
 
 // ── Reminders ───────────────────────────────────────────────────────────────

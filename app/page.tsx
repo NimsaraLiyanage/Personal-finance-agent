@@ -7,6 +7,7 @@
 import Link from 'next/link';
 
 import AddTransaction from '@/components/dashboard/AddTransaction';
+import BriefingCard from '@/components/dashboard/BriefingCard';
 import BudgetsPanel from '@/components/dashboard/BudgetsPanel';
 import CategoryBreakdown from '@/components/dashboard/CategoryBreakdown';
 import NetFlowChart from '@/components/dashboard/NetFlowChart';
@@ -25,6 +26,7 @@ import {
 } from '@/lib/finance/queries';
 import { parsePeriod, trendShapeFor } from '@/lib/finance/periods';
 import { listActiveReminders } from '@/lib/finance/reminders';
+import { latestBriefing } from '@/lib/insights/briefing';
 import { readUser } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -60,12 +62,13 @@ export default async function DashboardPage({
   };
   const trend = trendShapeFor(period);
 
-  const [summary, flow, budgets, ledger, reminders] = await Promise.all([
+  const [summary, flow, budgets, ledger, reminders, briefing] = await Promise.all([
     buildSpendingSummary(scope, period),
     buildFlowSeries(scope, { granularity: trend.granularity, buckets: trend.buckets }),
     listBudgetStatuses(scope),
     listTransactions(scope, { period, limit: 25 }),
     listActiveReminders(scope),
+    latestBriefing(user.userId),
   ]);
 
   const net = summary.netMinor;
@@ -83,6 +86,13 @@ export default async function DashboardPage({
       {/* Above everything: a reminder that has come due is the app keeping a
           promise, and it outranks the numbers. */}
       <DueReminders reminders={reminders.due} timezone={user.timezone} />
+
+      {/* Shown until it is dismissed, then it stays gone until next week's is
+          written. An assistant that re-raises something you've already read is
+          one you learn to scroll past. */}
+      {(!briefing || briefing.readAt === null) && (
+        <BriefingCard briefing={briefing} timezone={user.timezone} />
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <StatTile label="Income" value={summary.formattedIncome} sub="money in" />

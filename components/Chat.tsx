@@ -103,6 +103,16 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
     [applyThread],
   );
 
+  // A question handed over from another page (the briefing's "Ask about this").
+  // Prefilled rather than sent: arriving on a page that has already started
+  // talking on your behalf is startling, and the wording may need a tweak.
+  // Read off `location` instead of useSearchParams so this stays a plain
+  // client effect with no prerender bailout.
+  useEffect(() => {
+    const ask = new URLSearchParams(window.location.search).get('ask');
+    if (ask) setInput(ask);
+  }, []);
+
   // Resume whatever was open last time.
   useEffect(() => {
     let stored: string | null = null;
