@@ -7,6 +7,7 @@
 
 import Link from 'next/link';
 
+import { CONTAINER } from '@/components/ui/container';
 import { formatMoney } from '@/lib/money';
 import { listTransactionsInRange, type LedgerScope } from '@/lib/finance/queries';
 import { resolveMonth } from '@/lib/finance/months';
@@ -54,11 +55,28 @@ export default async function SummaryPage({
     timeZone: user.timezone,
   });
 
+  // Folded in memory from rows already fetched — the statement and its glance
+  // panel must agree, and a second query is a second chance to disagree.
+  const spendByCategory = new Map<string, number>();
+  for (const t of ledger.transactions) {
+    if (t.kind !== 'expense') continue;
+    spendByCategory.set(t.category, (spendByCategory.get(t.category) ?? 0) + t.amountMinor);
+  }
+  const topCategories = [...spendByCategory.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  if (ledger.transactions.length === 0) {
+    return (
+      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey}>
+        <Empty>No transactions recorded in {month.label}.</Empty>
+      </Shell>
+    );
+  }
+
   return (
     <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey}>
-      {ledger.transactions.length === 0 ? (
-        <Empty>No transactions recorded in {month.label}.</Empty>
-      ) : (
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="card overflow-hidden">
           {/* The table scrolls inside its own box on a narrow screen rather
               than making the whole page scroll sideways. */}
@@ -142,8 +160,73 @@ export default async function SummaryPage({
             </span>
           </div>
         </div>
-      )}
+
+        <aside className="space-y-4">
+          <section className="card p-4">
+            <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-faint">
+              Month at a glance
+            </h2>
+            <dl className="space-y-2 text-sm">
+              <GlanceRow term="Income" value={formatMoney(ledger.incomeMinor, user.currency)} tone="good" />
+              <GlanceRow term="Expenses" value={formatMoney(ledger.expenseMinor, user.currency)} />
+              <div className="border-t border-line pt-2">
+                <GlanceRow
+                  term="Net"
+                  value={formatMoney(ledger.netMinor, user.currency)}
+                  tone={ledger.netMinor === 0 ? undefined : ledger.netMinor > 0 ? 'good' : 'bad'}
+                  strong
+                />
+              </div>
+            </dl>
+          </section>
+
+          {topCategories.length > 0 && (
+            <section className="card p-4">
+              <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-faint">
+                Biggest categories
+              </h2>
+              <dl className="space-y-2 text-sm">
+                {topCategories.map(([category, minor]) => (
+                  <GlanceRow
+                    key={category}
+                    term={capitalise(category)}
+                    value={formatMoney(minor, user.currency)}
+                  />
+                ))}
+              </dl>
+            </section>
+          )}
+
+          <p className="px-1 text-[11px] leading-relaxed text-ink-faint">
+            Charts, budgets and manual entry live on the{' '}
+            <Link href="/" className="text-accent hover:underline">
+              dashboard
+            </Link>
+            . This page is just the month, in order.
+          </p>
+        </aside>
+      </div>
     </Shell>
+  );
+}
+
+function GlanceRow({
+  term,
+  value,
+  tone,
+  strong,
+}: {
+  term: string;
+  value: string;
+  tone?: 'good' | 'bad';
+  strong?: boolean;
+}) {
+  const colour = tone === 'good' ? 'text-accent' : tone === 'bad' ? 'text-danger' : 'text-ink';
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className={strong ? 'font-medium text-ink' : 'text-ink-dim'}>{term}</dt>
+      <dd className={`tnum ${strong ? 'font-semibold' : ''} ${colour}`}>{value}</dd>
+    </div>
   );
 }
 
@@ -160,7 +243,7 @@ function Shell({
 }) {
   return (
     <main className="scroll-quiet h-full overflow-y-auto">
-      <div className="mx-auto max-w-4xl space-y-4 px-4 py-5 sm:px-6 sm:py-6">
+      <div className={`${CONTAINER} space-y-4 py-5 sm:py-6`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Summary</h1>

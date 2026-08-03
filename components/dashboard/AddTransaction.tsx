@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react';
 
 import { addTransaction } from '@/app/actions/finance';
+import DatePicker from '@/components/ui/DatePicker';
 import { CATEGORIES } from '@/lib/agent/types';
 
 // Manual entry, for when typing a sentence to the assistant is more ceremony
@@ -11,6 +12,7 @@ import { CATEGORIES } from '@/lib/agent/types';
 export default function AddTransaction({ today }: { today: string }) {
   const form = useRef<HTMLFormElement>(null);
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
+  const [date, setDate] = useState(today);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -77,7 +79,9 @@ export default function AddTransaction({ today }: { today: string }) {
             />
           </Field>
           <Field label="Date">
-            <input name="occurredOn" type="date" defaultValue={today} className={inputClass} />
+            {/* Keeps whatever day was last picked across submits — people log
+                several things from the same day in one sitting. */}
+            <DatePicker name="occurredOn" value={date} onChange={setDate} max={today} />
           </Field>
         </div>
 

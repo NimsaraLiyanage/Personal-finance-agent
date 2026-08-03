@@ -13,6 +13,7 @@ import NetFlowChart from '@/components/dashboard/NetFlowChart';
 import PeriodTabs from '@/components/dashboard/PeriodTabs';
 import StatTile from '@/components/dashboard/StatTile';
 import TransactionsPanel from '@/components/dashboard/TransactionsPanel';
+import { CONTAINER } from '@/components/ui/container';
 import { formatDateInZone } from '@/lib/agent/time';
 import {
   buildFlowSeries,
@@ -96,8 +97,11 @@ export default async function DashboardPage({
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
+      {/* A fixed sidebar track rather than a 2:1 split — fractions would keep
+          growing the form with the window, and a 450px-wide amount field is
+          worse than a 336px one, not better. The charts take the slack. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="space-y-4">
           <NetFlowChart points={flow} title={trend.title} />
           <CategoryBreakdown
             categories={summary.byCategory}
@@ -124,7 +128,7 @@ export default async function DashboardPage({
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="scroll-quiet h-full overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-4 px-4 py-5 sm:px-6 sm:py-6">{children}</div>
+      <div className={`${CONTAINER} space-y-4 py-5 sm:py-6`}>{children}</div>
     </main>
   );
 }

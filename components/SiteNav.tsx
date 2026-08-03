@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+import { CONTAINER } from '@/components/ui/container';
+
 const LINKS = [
   { href: '/', label: 'Dashboard' },
   { href: '/summary', label: 'Summary' },
@@ -14,7 +16,10 @@ export default function SiteNav() {
 
   return (
     <header className="shrink-0 border-b border-line bg-surface">
-      <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2.5 sm:px-6">
+      {/* The bar's background and border span the window — it is chrome. What
+          sits inside it uses the same column as the page, so the logo lands
+          directly above the page heading rather than off on its own. */}
+      <div className={`${CONTAINER} flex items-center gap-4 py-2.5`}>
         <Link href="/" className="flex items-center gap-2.5" aria-label="Tally home">
           <TallyMark />
           <span className="text-sm font-semibold tracking-tight">Tally</span>
