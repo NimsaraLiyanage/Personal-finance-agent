@@ -16,6 +16,7 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/db';
+import { acknowledgeReminder, deleteReminder } from '@/lib/finance/reminders';
 import { toMinor } from '@/lib/money';
 import { resolveUser, SESSION_COOKIE } from '@/lib/session';
 import { CATEGORIES } from '@/lib/agent/types';
@@ -138,6 +139,25 @@ export async function saveBudget(formData: FormData): Promise<ActionResult> {
 export async function removeBudget(category: string): Promise<ActionResult> {
   const { userId } = await session();
   await prisma.budget.deleteMany({ where: { userId, category } });
+  refresh();
+  return { ok: true };
+}
+
+// ── Reminders ───────────────────────────────────────────────────────────────
+
+/** Acknowledge a due reminder: it has been delivered and acted on. */
+export async function dismissReminder(id: string): Promise<ActionResult> {
+  const { userId } = await session();
+  const ok = await acknowledgeReminder(userId, id);
+  if (!ok) return { ok: false, error: 'That reminder is no longer waiting.' };
+  refresh();
+  return { ok: true };
+}
+
+/** Drop a reminder the person no longer wants at all. */
+export async function removeReminder(id: string): Promise<ActionResult> {
+  const { userId } = await session();
+  await deleteReminder(userId, id);
   refresh();
   return { ok: true };
 }

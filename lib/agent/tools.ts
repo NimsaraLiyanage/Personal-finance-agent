@@ -431,12 +431,18 @@ export function buildTools(runtime: ToolRuntime) {
         ...(dedupeKey ? { dedupeKey } : {}),
       });
 
-      return `Reminder set for ${dueAt.toISOString()}: ${input.title}.`;
+      // Says where it will actually show up. The model used to be free to
+      // imply a phone notification, which nothing in this app sends.
+      return `Reminder saved for ${dueAt.toISOString()}: ${input.title}. It appears on their dashboard when it comes due and stays there until they mark it done.`;
     },
     {
       name: 'schedule_reminder',
-      description:
-        'Schedule a nudge — a bill due, a savings check-in, a "review your dining spend on Sunday". Give either in_minutes or due_at, not both.',
+      description: [
+        'Schedule a nudge — a bill due, a savings check-in, a "review your dining spend on Sunday".',
+        'Give either in_minutes or due_at, not both.',
+        'Delivery is in-app: it surfaces on their dashboard when due. Do not tell them',
+        'their phone will alert them.',
+      ].join(' '),
       schema: z.object({
         title: z.string().describe('Short, under 50 characters.'),
         body: z.string().describe('One sentence of detail.'),
