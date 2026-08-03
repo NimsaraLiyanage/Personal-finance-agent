@@ -81,6 +81,34 @@ export async function resolveUser(): Promise<{
   };
 }
 
+/**
+ * Read the current user without ever creating one.
+ *
+ * Server Components can read cookies but not set them, so `resolveUser` is
+ * unusable during render: a first-time visitor would mint a fresh user row on
+ * every paint, none of which they could ever be issued a cookie for. Pages call
+ * this instead and render their empty state when it returns null — the row gets
+ * created by the first write (a Server Action) or the first chat turn, both of
+ * which can set the cookie on their response.
+ */
+export async function readUser(): Promise<{
+  userId: string;
+  currency: string;
+  timezone: string;
+} | null> {
+  const jar = await cookies();
+  const raw = jar.get(COOKIE_NAME)?.value;
+  if (!raw) return null;
+
+  const userId = verify(raw);
+  if (!userId) return null;
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return null;
+
+  return { userId: user.id, currency: user.currency, timezone: user.timezone };
+}
+
 export const SESSION_COOKIE = {
   name: COOKIE_NAME,
   options: {

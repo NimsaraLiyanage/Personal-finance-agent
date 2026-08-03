@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import SiteNav from '@/components/SiteNav';
 
 export const metadata: Metadata = {
   title: 'Tally — personal finance agent',
@@ -16,7 +17,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh antialiased">{children}</body>
+      {/* The shell owns the viewport height and the nav; each page decides how
+          its own body scrolls, because the chat pins to the bottom and the
+          dashboard scrolls from the top. */}
+      <body className="flex h-dvh flex-col overflow-hidden bg-canvas antialiased">
+        <SiteNav />
+        <div className="min-h-0 flex-1">{children}</div>
+      </body>
     </html>
   );
 }

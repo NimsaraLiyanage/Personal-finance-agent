@@ -215,9 +215,27 @@ lib/voice/
   tools.ts        Zod → Realtime tool manifest, + relayed execution
 
 lib/client/voice.ts   browser controllers for both modes
-components/           Chat, ActionCard (exhaustive), VoiceControl
+
+lib/finance/
+  queries.ts      the read model — ONE implementation of every ledger question,
+                  consumed by both the agent's tools and the dashboard
+  periods.ts      the period vocabulary, shared with the client switcher
+  months.ts       calendar-month windows for the monthly statement
+
+components/           Chat, ActionCard (exhaustive), VoiceControl, SiteNav
+components/dashboard/ StatTile, NetFlowChart, CategoryBreakdown, BudgetsPanel,
+                      TransactionsPanel, AddTransaction, PeriodTabs
+app/                  / (dashboard), /summary (monthly statement), /chat
+app/actions/          Server Actions for manual entry, deletes, budgets
 app/api/              chat (SSE), threads, voice/{session,tool-call,transcribe,speak}
 ```
+
+### One read model, two surfaces
+
+The dashboard does not re-implement "how much did I spend this month" — it calls
+the same [`lib/finance/queries.ts`](lib/finance/queries.ts) the agent's tools
+call. Two implementations of month boundaries drift the first time one of them
+forgets timezones, and then the app argues with itself in front of the user.
 
 ---
 
@@ -230,7 +248,8 @@ Scope discipline is part of the design:
   maps to a user, so swapping in Clerk or Auth.js is a one-file change.
 - **No bank sync.** Manual and conversational entry only — an aggregator
   integration would be the bulk of the code and none of the interesting part.
-- **No screens beyond chat.** `navigate_to` emits the intent and the card shows
-  it; dashboard/transactions/budgets views are stubs.
+- **One dashboard, not four screens.** Transactions, budgets and the trend all
+  live on `/`; `navigate_to` resolves every screen it can name to that route
+  rather than fanning out into separate views that each need their own state.
 - **No financial advice.** The agent explains your own spending. It does not
   recommend investments or interpret tax law, and says so when asked.

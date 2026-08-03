@@ -167,13 +167,10 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
 
   return (
     <div className="flex h-full flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-surface/85 py-3.5 backdrop-blur-md">
-        <div className="flex items-center gap-2.5">
-          <TallyMark />
-          <div>
-            <h1 className="text-sm font-semibold tracking-tight">Tally</h1>
-            <p className="text-xs text-ink-faint">Tell it what you spent.</p>
-          </div>
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-surface/85 py-3 backdrop-blur-md">
+        <div>
+          <h1 className="text-sm font-semibold tracking-tight">Assistant</h1>
+          <p className="text-xs text-ink-faint">Tell it what you spent.</p>
         </div>
         <VoiceControl
           defaultMode={defaultVoiceMode}
@@ -276,30 +273,6 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
         </div>
       </form>
     </div>
-  );
-}
-
-// Three strokes and a slash — the mark you make on paper when you're counting
-// something one at a time, which is exactly what the app does.
-function TallyMark() {
-  return (
-    <span
-      aria-hidden
-      className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent shadow-raised"
-    >
-      <svg
-        viewBox="0 0 24 24"
-        className="size-5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2.1}
-        strokeLinecap="round"
-        style={{ color: 'white' }}
-      >
-        <path d="M7 6.5v11M12 6.5v11M17 6.5v11" />
-        <path d="M4.8 17.6 19.2 6.4" strokeWidth={2.4} />
-      </svg>
-    </span>
   );
 }
 

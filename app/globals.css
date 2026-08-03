@@ -20,7 +20,10 @@
   --color-accent: oklch(0.55 0.115 168);
   --color-accent-soft: oklch(0.93 0.04 168);
   --color-accent-dim: oklch(0.78 0.09 168);
-  --color-warn: oklch(0.7 0.14 72);
+  /* Status hues double as chart marks, so they are held to the 3:1 contrast
+     floor against white — warn sits lower than it looks like it should for
+     exactly that reason (a lighter amber fails it). */
+  --color-warn: oklch(0.645 0.135 72);
   --color-danger: oklch(0.56 0.19 25);
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;

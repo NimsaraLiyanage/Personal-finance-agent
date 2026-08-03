@@ -6,6 +6,8 @@
 // means adding a variant to the union without handling it here is a type
 // error, not a card that silently fails to appear.
 
+import Link from 'next/link';
+
 import type { BudgetStatus, PendingClientAction, TrendPoint } from '@/lib/agent/types';
 
 export default function ActionCard({ action }: { action: PendingClientAction }) {
@@ -144,13 +146,21 @@ export default function ActionCard({ action }: { action: PendingClientAction }) 
       );
 
     case 'navigate':
-      // Screens beyond chat aren't built in this slice; surfacing the intent
-      // keeps the action visible rather than swallowing it.
+      // Transactions, budgets and insights all live on the dashboard, so every
+      // screen the agent can name resolves to the same route for now.
       return (
         <Shell>
-          <div className="text-sm text-ink-dim">
-            Opening <span className="text-ink">{action.screen}</span>
-          </div>
+          <Link
+            href="/"
+            className="flex items-center justify-between gap-3 text-sm text-ink-dim transition-colors hover:text-ink"
+          >
+            <span>
+              Open the <span className="capitalize text-ink">{action.screen}</span>
+            </span>
+            <span aria-hidden className="text-accent">
+              →
+            </span>
+          </Link>
         </Shell>
       );
 

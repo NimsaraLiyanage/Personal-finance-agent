@@ -38,6 +38,11 @@ export function formatMoney(minor: number, currency: string, locale = 'en-US'): 
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency.toUpperCase(),
+      // narrowSymbol so LKR reads "Rs 1,234.50" rather than "LKR 1,234.50" —
+      // and USD stays "$", EUR stays "€". The default 'symbol' display falls
+      // back to the ISO code for most non-Western currencies, which is how a
+      // rupee ends up shouting its own currency code in every table cell.
+      currencyDisplay: 'narrowSymbol',
       minimumFractionDigits: minorUnitExponent(currency),
     }).format(toMajor(minor, currency));
   } catch {

@@ -19,28 +19,24 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 
 import { prisma } from '../db';
+import {
+  buildBudgetStatus,
+  buildFlowSeries,
+  buildSpendingSummary,
+  listBudgetStatuses,
+  listTransactions as queryTransactions,
+  toTransactionView,
+  type LedgerScope,
+} from '../finance/queries';
 import { formatMoney, toMinor } from '../money';
 import { CATEGORIES } from './types';
 import type {
   BudgetStatus,
-  Category,
-  CategoryTotal,
   PendingClientAction,
-  SpendingSummary,
   ToolRuntime,
-  TransactionView,
   TrendPoint,
 } from './types';
-import {
-  addDays,
-  formatDateInZone,
-  monthBounds,
-  nowInZone,
-  parseOccurredAt,
-  resolvePeriod,
-  startOfDay,
-  type PeriodKey,
-} from './time';
+import { formatDateInZone, nowInZone, parseOccurredAt, type PeriodKey } from './time';
 
 // ── Shared schema fragments ─────────────────────────────────────────────────
 
@@ -63,74 +59,8 @@ const PeriodEnum = z
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function toView(
-  t: {
-    id: string;
-    kind: 'expense' | 'income';
-    amountMinor: number;
-    currency: string;
-    merchant: string | null;
-    category: string;
-    note: string | null;
-    occurredAt: Date;
-  },
-): TransactionView {
-  return {
-    id: t.id,
-    kind: t.kind,
-    amountMinor: t.amountMinor,
-    currency: t.currency,
-    formatted: formatMoney(t.amountMinor, t.currency),
-    merchant: t.merchant,
-    category: t.category as Category,
-    note: t.note,
-    occurredAt: t.occurredAt.toISOString(),
-  };
-}
-
 function push(runtime: ToolRuntime, action: PendingClientAction): void {
   runtime.actions.push(action);
-}
-
-/** How far through the current month we are, 0–1. Used to judge budget pace. */
-function monthProgress(now: Date, timezone: string): number {
-  const { start, end } = monthBounds(now, timezone);
-  const span = end.getTime() - start.getTime();
-  if (span <= 0) return 0;
-  return Math.min(1, Math.max(0, (now.getTime() - start.getTime()) / span));
-}
-
-async function buildBudgetStatus(
-  runtime: ToolRuntime,
-  category: string,
-  limitMinor: number,
-  now: Date,
-): Promise<BudgetStatus> {
-  const { start, end } = monthBounds(now, runtime.timezone);
-  const spend = await prisma.transaction.aggregate({
-    where: {
-      userId: runtime.userId,
-      kind: 'expense',
-      category,
-      occurredAt: { gte: start, lt: end },
-    },
-    _sum: { amountMinor: true },
-  });
-  const spentMinor = spend._sum.amountMinor ?? 0;
-  const remainingMinor = limitMinor - spentMinor;
-  const usedRatio = limitMinor > 0 ? spentMinor / limitMinor : 0;
-  return {
-    category: category as Category,
-    limitMinor,
-    spentMinor,
-    remainingMinor,
-    formattedLimit: formatMoney(limitMinor, runtime.currency),
-    formattedSpent: formatMoney(spentMinor, runtime.currency),
-    formattedRemaining: formatMoney(remainingMinor, runtime.currency),
-    usedRatio,
-    state: usedRatio >= 1 ? 'over' : usedRatio >= 0.8 ? 'warning' : 'ok',
-    monthProgress: monthProgress(now, runtime.timezone),
-  };
 }
 
 // ── Tool factory ────────────────────────────────────────────────────────────
@@ -138,6 +68,15 @@ async function buildBudgetStatus(
 export function buildTools(runtime: ToolRuntime) {
   const now = () => nowInZone(runtime.clientNow, runtime.timezone);
   const money = (minor: number) => formatMoney(minor, runtime.currency);
+
+  // Every read goes through lib/finance/queries.ts on a scope built here, so
+  // the agent and the dashboard answer the same question the same way.
+  const scope = (): LedgerScope => ({
+    userId: runtime.userId,
+    currency: runtime.currency,
+    timezone: runtime.timezone,
+    now: now(),
+  });
 
   // ---- log_transaction ----------------------------------------------------
 
@@ -164,7 +103,7 @@ export function buildTools(runtime: ToolRuntime) {
           },
         });
 
-        const view = toView({ ...created, kind: created.kind as 'expense' | 'income' });
+        const view = toTransactionView(created);
 
         // If this spend touches a budgeted category, attach the updated status
         // so the card can show the bar moving — and so the model can mention an
@@ -176,12 +115,7 @@ export function buildTools(runtime: ToolRuntime) {
             select: { limitMinor: true },
           });
           if (budget) {
-            budgetTouched = await buildBudgetStatus(
-              runtime,
-              input.category,
-              budget.limitMinor,
-              now(),
-            );
+            budgetTouched = await buildBudgetStatus(scope(), input.category, budget.limitMinor);
           }
         }
 
@@ -238,91 +172,21 @@ export function buildTools(runtime: ToolRuntime) {
 
   const getSpendingSummary = tool(
     async (input) => {
-      const period = resolvePeriod(input.period as PeriodKey, now(), runtime.timezone);
-
-      const [rows, previousAgg] = await Promise.all([
-        prisma.transaction.findMany({
-          where: {
-            userId: runtime.userId,
-            occurredAt: { gte: period.from, lt: period.to },
-          },
-          select: { kind: true, amountMinor: true, category: true },
-        }),
-        period.previousFrom
-          ? prisma.transaction.aggregate({
-              where: {
-                userId: runtime.userId,
-                kind: 'expense',
-                occurredAt: { gte: period.previousFrom, lt: period.previousTo! },
-              },
-              _sum: { amountMinor: true },
-            })
-          : Promise.resolve(null),
-      ]);
-
-      let totalSpentMinor = 0;
-      let totalIncomeMinor = 0;
-      const byCategoryMap = new Map<string, { total: number; count: number }>();
-
-      for (const r of rows) {
-        if (r.kind === 'income') {
-          totalIncomeMinor += r.amountMinor;
-          continue;
-        }
-        totalSpentMinor += r.amountMinor;
-        const entry = byCategoryMap.get(r.category) ?? { total: 0, count: 0 };
-        entry.total += r.amountMinor;
-        entry.count += 1;
-        byCategoryMap.set(r.category, entry);
-      }
-
-      const byCategory: CategoryTotal[] = [...byCategoryMap.entries()]
-        .map(([category, v]) => ({
-          category: category as Category,
-          totalMinor: v.total,
-          formatted: money(v.total),
-          share: totalSpentMinor > 0 ? v.total / totalSpentMinor : 0,
-          count: v.count,
-        }))
-        .sort((a, b) => b.totalMinor - a.totalMinor);
-
-      const previousTotalSpentMinor = previousAgg?._sum.amountMinor ?? null;
-      const changePct =
-        previousTotalSpentMinor && previousTotalSpentMinor > 0
-          ? (totalSpentMinor - previousTotalSpentMinor) / previousTotalSpentMinor
-          : null;
-
-      const summary: SpendingSummary = {
-        periodLabel: period.label,
-        from: period.from.toISOString(),
-        to: period.to.toISOString(),
-        currency: runtime.currency,
-        totalSpentMinor,
-        totalIncomeMinor,
-        netMinor: totalIncomeMinor - totalSpentMinor,
-        formattedSpent: money(totalSpentMinor),
-        formattedIncome: money(totalIncomeMinor),
-        formattedNet: money(totalIncomeMinor - totalSpentMinor),
-        transactionCount: rows.length,
-        byCategory,
-        previousTotalSpentMinor,
-        changePct,
-      };
-
+      const summary = await buildSpendingSummary(scope(), input.period as PeriodKey);
       push(runtime, { type: 'spending_summary', summary });
 
-      if (rows.length === 0) {
-        return `No transactions recorded for ${period.label.toLowerCase()}.`;
+      if (summary.transactionCount === 0) {
+        return `No transactions recorded for ${summary.periodLabel.toLowerCase()}.`;
       }
-      const top = byCategory
+      const top = summary.byCategory
         .slice(0, 3)
         .map((c) => `${c.category} ${c.formatted}`)
         .join(', ');
       const delta =
-        changePct === null
+        summary.changePct === null
           ? ''
-          : ` That is ${Math.abs(Math.round(changePct * 100))}% ${changePct >= 0 ? 'more than' : 'less than'} the previous period.`;
-      return `${period.label}: spent ${summary.formattedSpent} across ${rows.length} transactions. Top: ${top}.${delta}`;
+          : ` That is ${Math.abs(Math.round(summary.changePct * 100))}% ${summary.changePct >= 0 ? 'more than' : 'less than'} the previous period.`;
+      return `${summary.periodLabel}: spent ${summary.formattedSpent} across ${summary.transactionCount} transactions. Top: ${top}.${delta}`;
     },
     {
       name: 'get_spending_summary',
@@ -336,31 +200,23 @@ export function buildTools(runtime: ToolRuntime) {
 
   const listTransactions = tool(
     async (input) => {
-      const period = resolvePeriod((input.period ?? 'this_month') as PeriodKey, now(), runtime.timezone);
-      const limit = Math.min(input.limit ?? 20, 50);
-
-      const rows = await prisma.transaction.findMany({
-        where: {
-          userId: runtime.userId,
-          occurredAt: { gte: period.from, lt: period.to },
-          ...(input.category ? { category: input.category } : {}),
-          ...(input.merchant_contains
-            ? { merchant: { contains: input.merchant_contains, mode: 'insensitive' as const } }
-            : {}),
-        },
-        orderBy: { occurredAt: 'desc' },
-        take: limit,
+      const { transactions, periodLabel } = await queryTransactions(scope(), {
+        period: (input.period ?? 'this_month') as PeriodKey,
+        category: input.category,
+        merchantContains: input.merchant_contains,
+        limit: Math.min(input.limit ?? 20, 50),
       });
 
-      const transactions = rows.map((r) => toView({ ...r, kind: r.kind as 'expense' | 'income' }));
       const heading = [
         input.category ? `${input.category} transactions` : 'Transactions',
-        period.label.toLowerCase(),
+        periodLabel.toLowerCase(),
       ].join(' — ');
 
       push(runtime, { type: 'transaction_list', transactions, heading });
 
-      if (transactions.length === 0) return `No matching transactions for ${period.label.toLowerCase()}.`;
+      if (transactions.length === 0) {
+        return `No matching transactions for ${periodLabel.toLowerCase()}.`;
+      }
       const total = transactions.reduce((a, t) => a + (t.kind === 'expense' ? t.amountMinor : 0), 0);
       return `Found ${transactions.length} transactions totalling ${money(total)}. The list is on screen.`;
     },
@@ -398,7 +254,7 @@ export function buildTools(runtime: ToolRuntime) {
         update: { limitMinor, currency: runtime.currency },
       });
 
-      const status = await buildBudgetStatus(runtime, saved.category, saved.limitMinor, now());
+      const status = await buildBudgetStatus(scope(), saved.category, saved.limitMinor);
       push(runtime, { type: 'budget_saved', budget: status });
 
       return `Budget set: ${money(limitMinor)} per month for ${input.category}. Already spent ${status.formattedSpent} this month.`;
@@ -421,25 +277,15 @@ export function buildTools(runtime: ToolRuntime) {
 
   const getBudgetStatus = tool(
     async (input) => {
-      const budgets = await prisma.budget.findMany({
-        where: {
-          userId: runtime.userId,
-          ...(input.category ? { category: input.category } : {}),
-        },
-        orderBy: { category: 'asc' },
-      });
+      const statuses = await listBudgetStatuses(scope(), input.category);
 
-      if (budgets.length === 0) {
+      if (statuses.length === 0) {
         push(runtime, { type: 'budget_status', budgets: [] });
         return input.category
           ? `No budget set for ${input.category}. Offer to create one.`
           : 'No budgets set yet. Offer to create one.';
       }
 
-      const at = now();
-      const statuses = await Promise.all(
-        budgets.map((b) => buildBudgetStatus(runtime, b.category, b.limitMinor, at)),
-      );
       push(runtime, { type: 'budget_status', budgets: statuses });
 
       const over = statuses.filter((s) => s.state === 'over');
@@ -466,71 +312,20 @@ export function buildTools(runtime: ToolRuntime) {
 
   const getSpendingTrend = tool(
     async (input) => {
-      const buckets = Math.min(input.buckets ?? 6, 24);
       const granularity = input.granularity ?? 'month';
-      const at = now();
+      const series = await buildFlowSeries(scope(), {
+        granularity,
+        buckets: input.buckets ?? 6,
+        category: input.category,
+      });
 
-      const points: TrendPoint[] = [];
-      let earliest = at;
-
-      // Walk backwards one bucket at a time. Each bucket is a separate
-      // aggregate rather than one grouped query because bucket boundaries are
-      // timezone-local and Postgres would need the user's zone pushed into the
-      // GROUP BY to match — which it can do, but not portably through Prisma's
-      // typed API. At <=24 buckets the extra round trips are cheap.
-      for (let i = buckets - 1; i >= 0; i--) {
-        let from: Date;
-        let to: Date;
-        let label: string;
-
-        if (granularity === 'day') {
-          from = startOfDay(addDays(at, -i, runtime.timezone), runtime.timezone);
-          to = addDays(from, 1, runtime.timezone);
-          label = new Intl.DateTimeFormat('en-US', {
-            month: 'short',
-            day: 'numeric',
-            timeZone: runtime.timezone,
-          }).format(from);
-        } else if (granularity === 'week') {
-          const anchor = addDays(at, -i * 7, runtime.timezone);
-          from = startOfDay(addDays(anchor, -6, runtime.timezone), runtime.timezone);
-          to = addDays(startOfDay(anchor, runtime.timezone), 1, runtime.timezone);
-          label = new Intl.DateTimeFormat('en-US', {
-            month: 'short',
-            day: 'numeric',
-            timeZone: runtime.timezone,
-          }).format(from);
-        } else {
-          const base = monthBounds(at, runtime.timezone).start;
-          const parts = new Intl.DateTimeFormat('en-US', {
-            year: 'numeric',
-            month: 'numeric',
-            timeZone: runtime.timezone,
-          }).formatToParts(base);
-          const year = Number(parts.find((p) => p.type === 'year')!.value);
-          const month = Number(parts.find((p) => p.type === 'month')!.value);
-          from = monthBounds(new Date(Date.UTC(year, month - 1 - i, 15)), runtime.timezone).start;
-          to = monthBounds(new Date(Date.UTC(year, month - i, 15)), runtime.timezone).start;
-          label = new Intl.DateTimeFormat('en-US', {
-            month: 'short',
-            timeZone: runtime.timezone,
-          }).format(from);
-        }
-
-        if (from < earliest) earliest = from;
-
-        const agg = await prisma.transaction.aggregate({
-          where: {
-            userId: runtime.userId,
-            kind: 'expense',
-            occurredAt: { gte: from, lt: to },
-            ...(input.category ? { category: input.category } : {}),
-          },
-          _sum: { amountMinor: true },
-        });
-        const totalMinor = agg._sum.amountMinor ?? 0;
-        points.push({ label, totalMinor, formatted: money(totalMinor) });
-      }
+      // The card plots spend only; the flow series carries income too, which
+      // the dashboard uses and this chart deliberately does not.
+      const points: TrendPoint[] = series.map((p) => ({
+        label: p.label,
+        totalMinor: p.expenseMinor,
+        formatted: p.formattedExpense,
+      }));
 
       const title = input.category
         ? `${input.category} spend by ${granularity}`
@@ -577,7 +372,7 @@ export function buildTools(runtime: ToolRuntime) {
       if (!target) return 'There is no matching transaction to remove.';
 
       await prisma.transaction.delete({ where: { id: target.id } });
-      const view = toView({ ...target, kind: target.kind as 'expense' | 'income' });
+      const view = toTransactionView(target);
       push(runtime, { type: 'navigate', screen: 'transactions' });
       return `Removed ${view.formatted} (${view.category}${view.merchant ? `, ${view.merchant}` : ''}).`;
     },
