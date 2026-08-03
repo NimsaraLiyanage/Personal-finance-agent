@@ -253,3 +253,13 @@ Scope discipline is part of the design:
   rather than fanning out into separate views that each need their own state.
 - **No financial advice.** The agent explains your own spending. It does not
   recommend investments or interpret tax law, and says so when asked.
+
+---
+
+## Where this is going
+
+[`docs/product-strategy.md`](docs/product-strategy.md) — the competitive
+landscape as of August 2026, the retention data on why expense trackers get
+abandoned, and what a mobile version would have to do differently to be worth
+installing. Short version: voice logging is already a commodity, and the
+opening is an agent that says something useful before it is asked.
