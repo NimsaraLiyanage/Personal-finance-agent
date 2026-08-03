@@ -20,8 +20,11 @@ export default function NetFlowChart({ points, title }: { points: FlowPoint[]; t
 
   const posMax = Math.max(0, ...points.map((p) => p.netMinor));
   const negMax = Math.max(0, ...points.map((p) => -p.netMinor));
+  // Keyed on activity, not on the net: a month where income exactly matched
+  // spending has plenty to plot, it just nets to zero.
+  const anyActivity = points.some((p) => p.incomeMinor > 0 || p.expenseMinor > 0);
 
-  if (points.length === 0 || (posMax === 0 && negMax === 0)) {
+  if (points.length === 0 || !anyActivity) {
     return (
       <Frame title={title}>
         <p className="py-10 text-center text-sm text-ink-faint">
@@ -33,7 +36,9 @@ export default function NetFlowChart({ points, title }: { points: FlowPoint[]; t
 
   // Split the plot between the two halves in proportion to what each side has
   // to show, so an all-positive chart uses the whole height.
-  let topShare = posMax / (posMax + negMax);
+  // Everything netting to zero leaves nothing to divide by; centre the baseline
+  // and let the break-even markers sit on it.
+  let topShare = posMax + negMax === 0 ? 0.5 : posMax / (posMax + negMax);
   if (posMax > 0 && negMax > 0) topShare = Math.min(1 - MIN_SHARE, Math.max(MIN_SHARE, topShare));
   const topHeight = Math.round(PLOT_HEIGHT * topShare);
   const bottomHeight = PLOT_HEIGHT - topHeight;
@@ -46,10 +51,19 @@ export default function NetFlowChart({ points, title }: { points: FlowPoint[]; t
       <div className="relative" style={{ height: PLOT_HEIGHT }}>
         <div className="flex h-full items-stretch gap-0.5">
           {points.map((point, i) => {
+            // A month with nothing in it is not a month you broke even in.
+            // Without this the 2px minimum below — which exists so a tiny real
+            // amount still shows — draws an empty month as a small positive
+            // bar, which is the chart stating something the data never said.
+            const active = point.incomeMinor > 0 || point.expenseMinor > 0;
             const positive = point.netMinor >= 0;
-            const height = positive
-              ? scale(point.netMinor, posMax, topHeight)
-              : scale(-point.netMinor, negMax, bottomHeight);
+            const height = !active
+              ? 0
+              : point.netMinor === 0
+                ? 2 // Broke even: a marker on the line, not a bar off it.
+                : positive
+                  ? scale(point.netMinor, posMax, topHeight)
+                  : scale(-point.netMinor, negMax, bottomHeight);
 
             return (
               <div
@@ -60,18 +74,26 @@ export default function NetFlowChart({ points, title }: { points: FlowPoint[]; t
                 onFocus={() => setHover(i)}
                 onBlur={() => setHover((current) => (current === i ? null : current))}
                 tabIndex={0}
-                aria-label={`${point.label}: in ${point.formattedIncome}, out ${point.formattedExpense}, net ${point.formattedNet}`}
+                aria-label={
+                  active
+                    ? `${point.label}: in ${point.formattedIncome}, out ${point.formattedExpense}, net ${point.formattedNet}`
+                    : `${point.label}: no transactions`
+                }
               >
                 <div className="flex items-end justify-center" style={{ height: topHeight }}>
-                  {positive && (
+                  {active && positive && (
                     <span
-                      className="w-full max-w-6 rounded-t bg-accent transition-opacity group-hover:opacity-80"
+                      className={`w-full max-w-6 rounded-t transition-opacity group-hover:opacity-80 ${
+                        // Broke even *with* activity is its own outcome, and a
+                        // green sliver would overstate it.
+                        point.netMinor === 0 ? 'bg-line-strong' : 'bg-accent'
+                      }`}
                       style={{ height }}
                     />
                   )}
                 </div>
                 <div className="flex items-start justify-center" style={{ height: bottomHeight }}>
-                  {!positive && (
+                  {active && !positive && (
                     <span
                       className="w-full max-w-6 rounded-b bg-danger transition-opacity group-hover:opacity-80"
                       style={{ height }}
@@ -79,7 +101,9 @@ export default function NetFlowChart({ points, title }: { points: FlowPoint[]; t
                   )}
                 </div>
 
-                {hover === i && <Tooltip point={point} index={i} count={points.length} />}
+                {hover === i && (
+                  <Tooltip point={point} active={active} index={i} count={points.length} />
+                )}
               </div>
             );
           })}
@@ -123,7 +147,17 @@ function Frame({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function Tooltip({ point, index, count }: { point: FlowPoint; index: number; count: number }) {
+function Tooltip({
+  point,
+  active,
+  index,
+  count,
+}: {
+  point: FlowPoint;
+  active: boolean;
+  index: number;
+  count: number;
+}) {
   // Nudge the end columns inward so the panel never hangs off the card.
   const align =
     index === 0
@@ -138,11 +172,15 @@ function Tooltip({ point, index, count }: { point: FlowPoint; index: number; cou
       className={`pointer-events-none absolute top-0 z-20 w-40 rounded-lg border border-line bg-surface p-2.5 text-left shadow-card ${align}`}
     >
       <div className="text-xs font-semibold text-ink">{point.label}</div>
-      <dl className="mt-1.5 space-y-1 text-[11px]">
-        <Row term="In" value={point.formattedIncome} />
-        <Row term="Out" value={point.formattedExpense} />
-        <Row term="Net" value={point.formattedNet} strong />
-      </dl>
+      {active ? (
+        <dl className="mt-1.5 space-y-1 text-[11px]">
+          <Row term="In" value={point.formattedIncome} />
+          <Row term="Out" value={point.formattedExpense} />
+          <Row term="Net" value={point.formattedNet} strong />
+        </dl>
+      ) : (
+        <p className="mt-1 text-[11px] text-ink-faint">No transactions</p>
+      )}
     </div>
   );
 }

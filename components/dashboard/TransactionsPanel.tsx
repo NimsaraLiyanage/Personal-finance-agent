@@ -78,7 +78,7 @@ export default function TransactionsPanel({
                 </span>
 
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm">{t.merchant ?? t.category}</div>
+                  <div className="truncate text-sm capitalize">{t.merchant ?? t.category}</div>
                   <div className="text-xs capitalize text-ink-faint">
                     {t.category} · {dateFormat.format(new Date(t.occurredAt))}
                   </div>
