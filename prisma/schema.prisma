@@ -133,6 +133,12 @@ model ChatMessage {
   toolName    String?
   toolPayload Json?
 
+  /// The PendingClientActions this turn produced, parked on its last assistant
+  /// row. Without these a replayed conversation shows the agent saying "the
+  /// chart is on screen" above no chart — the cards are half the answer, so a
+  /// transcript that drops them is not the conversation that happened.
+  actions Json?
+
   createdAt DateTime @default(now())
 
   thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)

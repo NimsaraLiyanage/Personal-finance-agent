@@ -13,6 +13,7 @@
 //    the result. They exist for audit and debugging.
 
 import { prisma } from '../db';
+import type { PendingClientAction } from './types';
 
 export interface LoadedMessage {
   role: 'user' | 'assistant' | 'tool';
@@ -50,6 +51,8 @@ export async function appendMessage(
     content: string;
     toolName?: string;
     toolPayload?: unknown;
+    /** Cards this turn produced. Only ever set on the turn's last assistant row. */
+    actions?: PendingClientAction[];
   },
 ): Promise<void> {
   await prisma.chatMessage.create({
@@ -59,6 +62,7 @@ export async function appendMessage(
       content: message.content,
       toolName: message.toolName ?? null,
       toolPayload: (message.toolPayload ?? undefined) as never,
+      actions: (message.actions?.length ? message.actions : undefined) as never,
     },
   });
   await prisma.chatThread.update({
@@ -141,8 +145,15 @@ export async function loadThreadMessages(userId: string, threadId: string) {
   return prisma.chatMessage.findMany({
     where: { threadId, role: { in: ['user', 'assistant'] } },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, role: true, content: true, createdAt: true },
+    select: { id: true, role: true, content: true, createdAt: true, actions: true },
   });
+}
+
+/** Remove a conversation. Scoped, so another user's id matches nothing. */
+export async function deleteThread(userId: string, threadId: string): Promise<boolean> {
+  // Messages go with it via the cascade on ChatMessage.threadId.
+  const { count } = await prisma.chatThread.deleteMany({ where: { id: threadId, userId } });
+  return count > 0;
 }
 
 /** Derive a thread title from its first user message, once. */

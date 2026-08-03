@@ -249,6 +249,7 @@ export async function persistTurn(
   threadId: string,
   userMessage: string,
   messages: BaseMessage[],
+  actions: PendingClientAction[] = [],
 ): Promise<void> {
   await appendMessage(threadId, { role: 'user', content: userMessage });
 
@@ -257,6 +258,12 @@ export async function persistTurn(
     if (messages[i] instanceof HumanMessage) lastHuman = i;
   }
 
+  // Collect before writing, so the turn's cards can ride on its *last*
+  // assistant row. Replaying a transcript without them shows the agent saying
+  // "the chart is on screen" above no chart.
+  type Row = Parameters<typeof appendMessage>[1];
+  const rows: Row[] = [];
+
   for (let i = lastHuman + 1; i < messages.length; i++) {
     const msg = messages[i];
     if (isAIMessage(msg)) {
@@ -264,15 +271,28 @@ export async function persistTurn(
       // Skip pure tool-call carriers: an empty assistant row replayed later
       // reads as the agent having said nothing, which confuses the model.
       if (text.trim().length === 0) continue;
-      await appendMessage(threadId, { role: 'assistant', content: text });
+      rows.push({ role: 'assistant', content: text });
     } else if (isToolMessage(msg)) {
-      await appendMessage(threadId, {
+      rows.push({
         role: 'tool',
         content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
         toolName: msg.name ?? undefined,
         toolPayload: safeParse(msg.content),
       });
     }
+  }
+
+  if (actions.length > 0) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].role === 'assistant') {
+        rows[i] = { ...rows[i], actions };
+        break;
+      }
+    }
+  }
+
+  for (const row of rows) {
+    await appendMessage(threadId, row);
   }
 }
 
@@ -296,7 +316,7 @@ export async function runTurn(args: RunTurnArgs): Promise<{
     messages: [],
   })) as AgentState;
 
-  await persistTurn(args.runtime.threadId, args.userMessage, result.messages);
+  await persistTurn(args.runtime.threadId, args.userMessage, result.messages, args.runtime.actions);
 
   return {
     assistantText: extractAssistantText(result.messages),

@@ -14,7 +14,9 @@ import type { PendingClientAction } from '@/lib/agent/types';
 
 interface Props {
   defaultMode: VoiceMode;
+  /** Read-only here: the chat owns writes so the rail and localStorage keep up. */
   threadId: React.RefObject<string | null>;
+  onThreadId: (id: string) => void;
   timezone: React.RefObject<string>;
   onTranscript: (text: string, role: 'user' | 'assistant') => void;
   onAction: (action: PendingClientAction) => void;
@@ -51,6 +53,7 @@ const STATE_LABEL: Record<VoiceState, string> = {
 export default function VoiceControl({
   defaultMode,
   threadId,
+  onThreadId,
   timezone,
   onTranscript,
   onAction,
@@ -103,7 +106,7 @@ export default function VoiceControl({
       }
 
       const session = (await response.json()) as VoiceSession;
-      threadId.current = session.threadId;
+      onThreadId(session.threadId);
 
       const instance = createVoiceController(
         session,
@@ -130,7 +133,7 @@ export default function VoiceControl({
       controller.current?.stop();
       controller.current = null;
     }
-  }, [mode, onAction, onTranscript, runTextTurn, threadId, timezone]);
+  }, [mode, onAction, onThreadId, onTranscript, runTextTurn, threadId, timezone]);
 
   const active = state !== 'idle' && state !== 'error';
 

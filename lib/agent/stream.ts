@@ -105,7 +105,7 @@ export function streamTurn({ runtime, userMessage, modelFactory }: StreamTurnArg
         const assistantText = finalState ? extractAssistantText(finalState.messages) : '';
 
         if (finalState) {
-          await persistTurn(runtime.threadId, userMessage, finalState.messages);
+          await persistTurn(runtime.threadId, userMessage, finalState.messages, runtime.actions);
           await ensureThreadTitle(runtime.threadId, userMessage);
         }
 

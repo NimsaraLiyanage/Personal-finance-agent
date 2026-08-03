@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import ActionCard from './ActionCard';
+import ThreadList from './ThreadList';
 import VoiceControl from './VoiceControl';
 import type { PendingClientAction, StreamEvent } from '@/lib/agent/types';
 import type { VoiceMode } from '@/lib/voice/types';
+
+/** Where the open conversation is remembered across reloads. */
+const THREAD_KEY = 'tally.threadId';
 
 // A rendered turn. Cards live on the message that produced them so the
 // transcript stays coherent when you scroll back — the alternative, a separate
@@ -30,6 +34,9 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  const [threadsToken, setThreadsToken] = useState(0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const threadId = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const timezone = useRef('UTC');
@@ -37,6 +44,82 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
   useEffect(() => {
     timezone.current = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   }, []);
+
+  /**
+   * The single writer for "which conversation is open".
+   *
+   * The ref is what the SSE turn and the voice controller read mid-flight; the
+   * state drives the rail; localStorage is what survives a reload. Keeping all
+   * three behind one function is the only way they stay in agreement.
+   */
+  const applyThread = useCallback((id: string | null) => {
+    threadId.current = id;
+    setActiveThread(id);
+    try {
+      if (id) window.localStorage.setItem(THREAD_KEY, id);
+      else window.localStorage.removeItem(THREAD_KEY);
+    } catch {
+      // Private browsing or a full quota — the conversation still works, it
+      // just won't be there after a reload.
+    }
+  }, []);
+
+  const openThread = useCallback(
+    async (id: string) => {
+      setError(null);
+      setDrawerOpen(false);
+      applyThread(id);
+
+      try {
+        const response = await fetch(`/api/threads/${id}`);
+        if (!response.ok) {
+          // Deleted elsewhere, or not ours. Start clean rather than stranding
+          // the user on a conversation that no longer exists.
+          applyThread(null);
+          setTurns([]);
+          return;
+        }
+        const data = (await response.json()) as {
+          messages: Array<{
+            id: string;
+            role: 'user' | 'assistant';
+            content: string;
+            actions?: PendingClientAction[];
+          }>;
+        };
+        setTurns(
+          data.messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            text: m.content,
+            actions: m.actions ?? [],
+          })),
+        );
+      } catch {
+        applyThread(null);
+        setTurns([]);
+      }
+    },
+    [applyThread],
+  );
+
+  // Resume whatever was open last time.
+  useEffect(() => {
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(THREAD_KEY);
+    } catch {
+      stored = null;
+    }
+    if (stored) void openThread(stored);
+  }, [openThread]);
+
+  const startNewThread = useCallback(() => {
+    applyThread(null);
+    setTurns([]);
+    setError(null);
+    setDrawerOpen(false);
+  }, [applyThread]);
 
   // Pin to the bottom as content streams in.
   useEffect(() => {
@@ -49,7 +132,8 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
    * Returns the assistant's final text so the pipeline voice controller can
    * speak it — the same call serves typing and talking.
    */
-  const runTurn = useCallback(async (message: string): Promise<string> => {
+  const runTurn = useCallback(
+    async (message: string): Promise<string> => {
     setBusy(true);
     setError(null);
 
@@ -108,7 +192,7 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
 
           switch (event.type) {
             case 'thread':
-              threadId.current = event.threadId;
+              applyThread(event.threadId);
               break;
             case 'token':
               patch((t) => ({ ...t, text: t.text + event.delta, pendingTool: null }));
@@ -133,10 +217,14 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
       setError((err as Error).message);
     } finally {
       setBusy(false);
+      // A finished turn may have created the thread or given it its title.
+      setThreadsToken((n) => n + 1);
     }
 
-    return finalText;
-  }, []);
+      return finalText;
+    },
+    [applyThread],
+  );
 
   const submit = useCallback(
     async (text: string) => {
@@ -165,16 +253,58 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
     });
   }, []);
 
+  const rail = (
+    <ThreadList
+      activeId={activeThread}
+      onSelect={(id) => void openThread(id)}
+      onNew={startNewThread}
+      refreshToken={threadsToken}
+    />
+  );
+
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full gap-5">
+      <aside aria-label="Conversations" className="hidden w-56 shrink-0 py-4 lg:block">
+        {rail}
+      </aside>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div
+            className="absolute inset-0 bg-ink/20"
+            onClick={() => setDrawerOpen(false)}
+            aria-hidden
+          />
+          <div
+            role="dialog"
+            aria-label="Conversations"
+            className="absolute inset-y-0 left-0 w-64 animate-rise border-r border-line bg-surface p-4 shadow-card"
+          >
+            {rail}
+          </div>
+        </div>
+      )}
+
+      <div className="mx-auto flex h-full w-full min-w-0 max-w-3xl flex-col border-line bg-surface px-4 sm:border-x sm:px-6 sm:shadow-card">
       <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-surface/85 py-3 backdrop-blur-md">
-        <div>
-          <h1 className="text-sm font-semibold tracking-tight">Assistant</h1>
-          <p className="text-xs text-ink-faint">Tell it what you spent.</p>
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Show conversations"
+            className="grid size-8 shrink-0 place-items-center rounded-lg border border-line text-ink-dim transition-colors hover:border-accent-dim hover:text-ink lg:hidden"
+          >
+            <span aria-hidden>☰</span>
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold tracking-tight">Assistant</h1>
+            <p className="truncate text-xs text-ink-faint">Tell it what you spent.</p>
+          </div>
         </div>
         <VoiceControl
           defaultMode={defaultVoiceMode}
           threadId={threadId}
+          onThreadId={applyThread}
           timezone={timezone}
           onTranscript={addVoiceTranscript}
           onAction={addVoiceAction}
@@ -272,6 +402,7 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
           </button>
         </div>
       </form>
+      </div>
     </div>
   );
 }
