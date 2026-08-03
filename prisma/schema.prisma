@@ -131,11 +131,19 @@ model Transaction {
   occurredAt DateTime
   createdAt  DateTime @default(now())
 
-  /// Which surface created it: `chat`, `voice`, or `manual`.
+  /// Which surface created it: `chat`, `voice`, `manual`, or `sms`.
   source String @default("chat")
+
+  /// Identity of the source document for imported rows — for SMS, a hash of
+  /// the message itself (lib/import/sms.ts). The unique index is what makes
+  /// re-pasting an overlapping range safe: the second copy collides instead of
+  /// double-counting. NULL for everything typed by hand, and Postgres lets
+  /// NULLs repeat, so hand entry is unaffected.
+  importKey String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, importKey])
   @@index([userId, occurredAt])
   @@index([userId, category, occurredAt])
   @@map("transactions")

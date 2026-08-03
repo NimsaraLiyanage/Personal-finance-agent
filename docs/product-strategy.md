@@ -170,9 +170,9 @@ These are missing today and each one blocks something above:
 | **No accounts / wallets** | Cash vs. card vs. bank account. Every competitor has it, and SMS import *requires* it — you must know which card was charged. |
 | **No recurring / subscription model** | Not in the schema. Needed for "forgotten subscriptions." |
 | **No user-level agent memory** | Thread summaries exist; durable corrections and preferences do not. |
-| **Fixed category enum** | Schema change needed for user-defined categories. |
-| **Multi-currency is half-built** | Each transaction stores a currency, but nothing converts. Matters for anyone earning USD in LK. |
-| **No privacy story** | All three LK apps market "on-device, we can't see your data." We send to an LLM. Needs an answer — likely on-device SMS parsing with only aggregates reaching the model. If we don't have one, they will use it against us. |
+| ~~**Fixed category enum**~~ | Done. `Category` + `CategoryRule`, user-owned, with learned corrections. |
+| **Multi-currency is half-built** | Each transaction stores a currency, but nothing converts. Matters for anyone earning USD in LK. The SMS importer now *detects* a foreign amount and refuses to guess a rate, which is honest but not a feature. |
+| ~~**No privacy story**~~ | Half done, and in the right half. `lib/import/sms.ts` is a pure function with no network and no model call: bank messages are read in the browser and only the resulting entries are written. The claim "your bank SMS is never sent to an AI" is now literally true. |
 
 ---
 
@@ -186,7 +186,16 @@ These are missing today and each one blocks something above:
 3. **Sinhala / Singlish handling** — cheap, high perceived value locally.
 4. **Mobile: SMS/notification listener** feeding the same agent, plus a quick-add
    widget, offline-first sync, and push notifications carrying the briefing.
+
+   *Partly done already.* The understanding half shipped on web first, at
+   `/import`: paste the messages, review, save. `lib/import/sms.ts` is
+   dependency-free — no database, no `next/*`, no `node:crypto` — so the phone
+   build reuses the file as-is and only supplies a different input pipe. The
+   remaining mobile work is the Android permission and the listener, which is
+   the part that could never have been validated from a laptop anyway.
 5. **Accounts/wallets** — do this with or just before SMS import, not after.
+   Import already reads the masked card tail off each message and throws it
+   away, because there is nowhere to put it. That is the next thing to build.
 
 ---
 
