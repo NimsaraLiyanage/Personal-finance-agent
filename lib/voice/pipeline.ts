@@ -15,7 +15,7 @@ import type { PipelineVoiceSession, VoiceProvider, VoiceSessionRequest } from '.
 import { randomUUID } from 'node:crypto';
 
 export function transcriptionModel(): string {
-  return process.env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-4o-mini-transcribe';
+  return process.env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-transcribe';
 }
 
 export function speechModel(): string {

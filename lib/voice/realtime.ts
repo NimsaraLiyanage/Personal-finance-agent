@@ -21,7 +21,10 @@ import type { RealtimeVoiceSession, VoiceProvider, VoiceSessionRequest } from '.
 const OPENAI_BASE = () => process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1';
 
 export function realtimeModel(): string {
-  return process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime';
+  // The `-mini` tier is the demo default: realtime is billed per audio token,
+  // and this is the cheapest current speech-to-speech model. Swap to
+  // `gpt-realtime-2.1` for the best turn-taking.
+  return process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime-2.1-mini';
 }
 
 function num(name: string, fallback: number): number {
