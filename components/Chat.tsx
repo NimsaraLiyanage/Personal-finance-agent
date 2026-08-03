@@ -167,16 +167,11 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
 
   return (
     <div className="flex h-full flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-canvas/85 py-3.5 backdrop-blur-md">
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-surface/85 py-3.5 backdrop-blur-md">
         <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className="grid size-8 shrink-0 place-items-center rounded-xl bg-accent text-sm font-semibold text-white shadow-raised"
-          >
-            L
-          </span>
+          <TallyMark />
           <div>
-            <h1 className="text-sm font-semibold tracking-tight">Ledger</h1>
+            <h1 className="text-sm font-semibold tracking-tight">Tally</h1>
             <p className="text-xs text-ink-faint">Tell it what you spent.</p>
           </div>
         </div>
@@ -205,7 +200,7 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
                   key={s}
                   type="button"
                   onClick={() => void submit(s)}
-                  className="rounded-full border border-line bg-surface px-3.5 py-2 text-xs text-ink-dim shadow-raised transition-all hover:-translate-y-px hover:border-accent-dim hover:text-ink"
+                  className="rounded-full border border-line bg-surface-2 px-3.5 py-2 text-xs text-ink-dim transition-all hover:-translate-y-px hover:border-accent-dim hover:bg-surface hover:text-ink hover:shadow-raised"
                 >
                   {s}
                 </button>
@@ -255,13 +250,13 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
           e.preventDefault();
           void submit(input);
         }}
-        className="sticky bottom-0 bg-canvas pb-5"
+        className="sticky bottom-0 bg-surface pb-5"
       >
         {/* Fades the transcript out under the composer instead of letting it
             collide with the input's top edge. */}
         <div
           aria-hidden
-          className="pointer-events-none -mt-6 h-6 bg-gradient-to-b from-transparent to-canvas"
+          className="pointer-events-none -mt-6 h-6 bg-gradient-to-b from-transparent to-surface"
         />
         <div className="flex items-center gap-2 rounded-2xl border border-line bg-surface p-1.5 shadow-card transition-colors focus-within:border-accent-dim">
           <input
@@ -281,6 +276,30 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
         </div>
       </form>
     </div>
+  );
+}
+
+// Three strokes and a slash — the mark you make on paper when you're counting
+// something one at a time, which is exactly what the app does.
+function TallyMark() {
+  return (
+    <span
+      aria-hidden
+      className="grid size-9 shrink-0 place-items-center rounded-xl bg-accent shadow-raised"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="size-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2.1}
+        strokeLinecap="round"
+        style={{ color: 'white' }}
+      >
+        <path d="M7 6.5v11M12 6.5v11M17 6.5v11" />
+        <path d="M4.8 17.6 19.2 6.4" strokeWidth={2.4} />
+      </svg>
+    </span>
   );
 }
 

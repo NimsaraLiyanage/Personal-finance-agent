@@ -2,10 +2,13 @@
 
 @theme {
   /* Light palette. Names stay semantic (canvas → ink) so components never
-     spell out a colour — the whole scheme swaps from this block alone. */
-  --color-canvas: oklch(0.985 0.004 250);
+     spell out a colour — the whole scheme swaps from this block alone.
+     Three depth levels, and they must stay in this order: canvas is the grey
+     page behind everything, surface is the white chat column, surface-2 is the
+     faint tint that lifts cards off that column. */
+  --color-canvas: oklch(0.962 0.005 250);
   --color-surface: oklch(1 0 0);
-  --color-surface-2: oklch(0.965 0.006 250);
+  --color-surface-2: oklch(0.978 0.005 250);
   --color-line: oklch(0.915 0.008 250);
   --color-line-strong: oklch(0.86 0.01 250);
   --color-ink: oklch(0.26 0.02 260);
@@ -58,11 +61,12 @@
 }
 
 @layer utilities {
+  /* Cards sit inside the white chat column, so they tint *up* from it rather
+     than relying on a shadow that white-on-white can't show. */
   .card {
-    background: var(--color-surface);
+    background: var(--color-surface-2);
     border: 1px solid var(--color-line);
     border-radius: 1rem;
-    box-shadow: var(--shadow-card);
   }
 
   /* Scrollbars in a light UI read as heavy chrome unless toned down. */

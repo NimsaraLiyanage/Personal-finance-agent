@@ -1,4 +1,4 @@
-# Ledger — a personal finance agent
+# Tally — a personal finance agent
 
 A conversational finance assistant. Tell it what you spent, in text or out
 loud, and it writes to your ledger, answers questions from your real data, and

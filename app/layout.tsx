@@ -2,13 +2,13 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Ledger — personal finance agent',
+  title: 'Tally — personal finance agent',
   description:
     'A conversational finance assistant: log spending by text or voice, and get answers from your own ledger.',
 };
 
 export const viewport: Viewport = {
-  themeColor: '#f8f9fb',
+  themeColor: '#f2f4f7',
   width: 'device-width',
   initialScale: 1,
 };
