@@ -7,6 +7,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { transcriptionModel } from '@/lib/voice/pipeline';
+import { transcriptionBias } from '@/lib/voice/vocabulary';
+import { readUser } from '@/lib/session';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -41,10 +43,18 @@ export async function POST(request: NextRequest) {
   const upstream = new FormData();
   upstream.append('file', file, file.name || 'turn.webm');
   upstream.append('model', transcriptionModel());
-  // A language hint measurably cuts both latency and misdetection on short
-  // utterances, where there isn't enough audio to identify the language.
+
+  // A language hint cuts latency and misdetection on short utterances — but it
+  // pins the transcriber to ONE language, which is wrong for a market where
+  // "lunch එකට 450 ගියා" is an ordinary sentence. Leave it unset unless a
+  // deployment is genuinely monolingual.
   const language = process.env.OPENAI_TRANSCRIBE_LANGUAGE?.trim();
   if (language) upstream.append('language', language);
+
+  // Bias decoding toward the words this person actually uses. `readUser` never
+  // creates a row: no session here just means a generic hint.
+  const session = await readUser();
+  upstream.append('prompt', await transcriptionBias(session?.userId ?? null));
 
   const base = process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1';
 
