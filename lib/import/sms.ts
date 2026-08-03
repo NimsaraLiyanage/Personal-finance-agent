@@ -25,6 +25,15 @@
 // re-running the identical code before anything is written. The client renders
 // the interpretation; it never gets to decide the numbers.
 
+import {
+  expandYear,
+  isRealDate,
+  iso,
+  MONTH_NAMES,
+  MONTH_WORD,
+  withYear,
+} from './dates';
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface ParsedMessage {
@@ -234,45 +243,21 @@ function neutralise(text: string): string {
 
 // ── Dates ───────────────────────────────────────────────────────────────────
 
-const MONTH_NAMES: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
-  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
-};
-
-const MONTH_WORD = Object.keys(MONTH_NAMES).join('|');
-
+/** A date found inside the message, and where in it. */
 interface DateHit {
   start: number;
   end: number;
   iso: string;
 }
 
-function isRealDate(year: number, month: number, day: number): boolean {
-  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-  const probe = new Date(Date.UTC(year, month - 1, day));
-  return probe.getUTCFullYear() === year && probe.getUTCMonth() === month - 1 && probe.getUTCDate() === day;
-}
-
-function iso(year: number, month: number, day: number): string {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-}
-
-/** Two digits mean this century. Banks do not send SMS about 1926. */
-function expandYear(value: number): number {
-  return value < 100 ? 2000 + value : value;
-}
-
 /**
  * Find the transaction date.
  *
- * **Day-first.** `03/08/2026` is the third of August, because that is what it
- * means everywhere these messages are sent. Month-first is used only when the
- * numbers force it (`08/23/2026` can't be a 23rd month).
+ * Conventions — day-first, two-digit years, a missing year meaning last year
+ * when this year would be in the future — live in ./dates.ts, shared with the
+ * CSV importer so the two can never read 03/08 as different months.
  */
 function findDate(text: string, todayIso: string): DateHit | null {
-  const [ty, tm, td] = todayIso.split('-').map(Number);
-  const todayValue = ty * 10000 + tm * 100 + td;
-
   const accept = (start: number, end: number, y: number, m: number, d: number): DateHit | null => {
     if (!isRealDate(y, m, d)) return null;
     return { start, end, iso: iso(y, m, d) };
@@ -311,16 +296,10 @@ function findDate(text: string, todayIso: string): DateHit | null {
   if (dayMonth) {
     const day = Number(dayMonth[1]);
     const month = MONTH_NAMES[dayMonth[2].toLowerCase()];
-    const hit = resolveWithoutYear(
-      dayMonth.index,
-      dayMonth.index + dayMonth[0].length,
-      month,
-      day,
-      dayMonth[3] ? expandYear(Number(dayMonth[3])) : null,
-      ty,
-      todayValue,
-    );
-    if (hit) return hit;
+    const resolved = withYear(month, day, dayMonth[3] ? expandYear(Number(dayMonth[3])) : null, todayIso);
+    if (resolved) {
+      return { start: dayMonth.index, end: dayMonth.index + dayMonth[0].length, iso: resolved };
+    }
   }
 
   // Aug 03, 2026
@@ -331,39 +310,15 @@ function findDate(text: string, todayIso: string): DateHit | null {
   if (monthDay) {
     const month = MONTH_NAMES[monthDay[1].toLowerCase()];
     const day = Number(monthDay[2]);
-    const hit = resolveWithoutYear(
-      monthDay.index,
-      monthDay.index + monthDay[0].length,
-      month,
-      day,
-      monthDay[3] ? expandYear(Number(monthDay[3])) : null,
-      ty,
-      todayValue,
-    );
-    if (hit) return hit;
+    const resolved = withYear(month, day, monthDay[3] ? expandYear(Number(monthDay[3])) : null, todayIso);
+    if (resolved) {
+      return { start: monthDay.index, end: monthDay.index + monthDay[0].length, iso: resolved };
+    }
   }
 
   return null;
 }
 
-/**
- * "12 Aug" with no year means this year — unless that lands in the future, in
- * which case it means last year. A December message read in January is the
- * common case and it should not date itself eleven months ahead.
- */
-function resolveWithoutYear(
-  start: number,
-  end: number,
-  month: number,
-  day: number,
-  statedYear: number | null,
-  currentYear: number,
-  todayValue: number,
-): DateHit | null {
-  const year = statedYear ?? (month * 100 + day > todayValue % 10000 ? currentYear - 1 : currentYear);
-  if (!isRealDate(year, month, day)) return null;
-  return { start, end, iso: iso(year, month, day) };
-}
 
 const TIME_RE = /\b([01]?\d|2[0-3])[:.]([0-5]\d)(?::[0-5]\d)?\s*([ap]\.?m\.?)?/i;
 
