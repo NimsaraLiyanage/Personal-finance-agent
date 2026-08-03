@@ -15,9 +15,12 @@ import type { CategoryOption } from '@/lib/finance/categories';
 export default function BudgetsPanel({
   budgets,
   categories,
+  scoped = false,
 }: {
   budgets: BudgetStatus[];
   categories: CategoryOption[];
+  /** True when the page is filtered to one account — these bars are not. */
+  scoped?: boolean;
 }) {
   const form = useRef<HTMLFormElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,16 @@ export default function BudgetsPanel({
       <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-faint">
         Monthly budgets
       </h2>
+
+      {/* A budget is a ceiling on a category, not on a pocket: the same dinner
+          counts against dining whether it left a card or a wallet. So these
+          bars ignore the account filter, and say so rather than looking like
+          they were filtered and came back small. */}
+      {scoped && budgets.length > 0 && (
+        <p className="mb-3 text-[11px] leading-relaxed text-ink-faint">
+          Counting every account — a budget is a limit on a category, not on where you paid from.
+        </p>
+      )}
 
       {budgets.length === 0 ? (
         <p className="mb-4 text-sm text-ink-faint">

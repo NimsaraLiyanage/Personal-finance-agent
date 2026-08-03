@@ -7,7 +7,9 @@
 
 import Link from 'next/link';
 
+import AccountFilter from '@/components/dashboard/AccountFilter';
 import { CONTAINER } from '@/components/ui/container';
+import { listAccounts, resolveAccount } from '@/lib/finance/accounts';
 import { formatMoney } from '@/lib/money';
 import { listTransactionsInRange, type LedgerScope } from '@/lib/finance/queries';
 import { resolveMonth } from '@/lib/finance/months';
@@ -29,7 +31,7 @@ export default async function SummaryPage({
 
   if (!user) {
     return (
-      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey}>
+      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey} filter={null}>
         <Empty>
           Nothing here yet. Add an entry on the{' '}
           <Link href="/" className="text-accent hover:underline">
@@ -48,7 +50,18 @@ export default async function SummaryPage({
     now: new Date(),
   };
 
-  const ledger = await listTransactionsInRange(scope, month.from, month.to);
+  // Resolved, never trusted: an id that isn't theirs comes back null and the
+  // page shows the whole month rather than a convincing-looking empty one.
+  const accountId = await resolveAccount(
+    user.userId,
+    typeof params.account === 'string' ? params.account : undefined,
+  );
+  const accounts = await listAccounts(user.userId, user.currency);
+  const filter = <AccountFilter accounts={accounts} current={accountId} />;
+
+  const ledger = await listTransactionsInRange(scope, month.from, month.to, {
+    accountId: accountId ?? undefined,
+  });
   const dayFormat = new Intl.DateTimeFormat('en-US', {
     day: '2-digit',
     month: 'short',
@@ -68,14 +81,17 @@ export default async function SummaryPage({
 
   if (ledger.transactions.length === 0) {
     return (
-      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey}>
-        <Empty>No transactions recorded in {month.label}.</Empty>
+      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey} filter={filter} accountId={accountId}>
+        <Empty>
+          No transactions recorded in {month.label}
+          {accountId ? ' on this account' : ''}.
+        </Empty>
       </Shell>
     );
   }
 
   return (
-    <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey}>
+    <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey} filter={filter} accountId={accountId}>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="card overflow-hidden">
           {/* The table scrolls inside its own box on a narrow screen rather
@@ -252,13 +268,21 @@ function Shell({
   month,
   previousKey,
   nextKey,
+  filter,
+  accountId = null,
   children,
 }: {
   month: string;
   previousKey: string;
   nextKey: string | null;
+  filter: React.ReactNode;
+  accountId?: string | null;
   children: React.ReactNode;
 }) {
+  // Month arrows must carry the filter, or stepping back a month silently
+  // widens the view back to every account.
+  const href = (monthKey: string) =>
+    `/summary?month=${monthKey}${accountId ? `&account=${accountId}` : ''}`;
   return (
     <main className="scroll-quiet h-full overflow-y-auto">
       <div className={`${CONTAINER} space-y-4 py-5 sm:py-6`}>
@@ -271,11 +295,11 @@ function Shell({
           {/* Plain links, not buttons: month navigation should survive a
               reload and be shareable, and it needs no JavaScript to work. */}
           <nav aria-label="Month" className="flex items-center gap-1">
-            <MonthLink href={`/summary?month=${previousKey}`} label="Previous month">
+            <MonthLink href={href(previousKey)} label="Previous month">
               ←
             </MonthLink>
             {nextKey ? (
-              <MonthLink href={`/summary?month=${nextKey}`} label="Next month">
+              <MonthLink href={href(nextKey)} label="Next month">
                 →
               </MonthLink>
             ) : (
@@ -288,6 +312,8 @@ function Shell({
             )}
           </nav>
         </div>
+
+        {filter}
 
         {children}
       </div>

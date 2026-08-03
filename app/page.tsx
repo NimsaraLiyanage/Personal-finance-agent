@@ -6,6 +6,7 @@
 
 import Link from 'next/link';
 
+import AccountFilter from '@/components/dashboard/AccountFilter';
 import AccountsPanel from '@/components/dashboard/AccountsPanel';
 import AddTransaction from '@/components/dashboard/AddTransaction';
 import BriefingCard from '@/components/dashboard/BriefingCard';
@@ -13,6 +14,7 @@ import BudgetsPanel from '@/components/dashboard/BudgetsPanel';
 import CategoryBreakdown from '@/components/dashboard/CategoryBreakdown';
 import NetFlowChart from '@/components/dashboard/NetFlowChart';
 import PeriodTabs from '@/components/dashboard/PeriodTabs';
+import RecurringPanel from '@/components/dashboard/RecurringPanel';
 import { DueReminders, UpcomingReminders } from '@/components/dashboard/Reminders';
 import StatTile from '@/components/dashboard/StatTile';
 import TransactionsPanel from '@/components/dashboard/TransactionsPanel';
@@ -25,8 +27,13 @@ import {
   listTransactions,
   type LedgerScope,
 } from '@/lib/finance/queries';
-import { listAccountBalances, listArchivedAccounts } from '@/lib/finance/accounts';
+import {
+  listAccountBalances,
+  listArchivedAccounts,
+  resolveAccount,
+} from '@/lib/finance/accounts';
 import { parsePeriod, trendShapeFor } from '@/lib/finance/periods';
+import { recurringSummary } from '@/lib/finance/recurring';
 import { DEFAULT_CATEGORY_OPTIONS, listCategories } from '@/lib/finance/categories';
 import { listActiveReminders } from '@/lib/finance/reminders';
 import { latestBriefing } from '@/lib/insights/briefing';
@@ -65,30 +72,59 @@ export default async function DashboardPage({
   };
   const trend = trendShapeFor(period);
 
-  const [summary, flow, budgets, ledger, reminders, briefing, categories, balances, closedAccounts] =
-    await Promise.all([
-      buildSpendingSummary(scope, period),
-      buildFlowSeries(scope, { granularity: trend.granularity, buckets: trend.buckets }),
-      listBudgetStatuses(scope),
-      listTransactions(scope, { period, limit: 25 }),
-      listActiveReminders(scope),
-      latestBriefing(user.userId),
-      listCategories(user.userId),
-      listAccountBalances(scope),
-      listArchivedAccounts(user.userId),
-    ]);
+  // Resolved rather than trusted: an id from the query string that isn't theirs
+  // comes back null and the page shows everything, instead of an empty view
+  // that looks like a ledger with nothing in it.
+  const accountId = await resolveAccount(
+    user.userId,
+    typeof params.account === 'string' ? params.account : undefined,
+  );
+
+  const [
+    summary,
+    flow,
+    budgets,
+    ledger,
+    reminders,
+    briefing,
+    categories,
+    balances,
+    closedAccounts,
+    recurring,
+  ] = await Promise.all([
+    buildSpendingSummary(scope, period, { accountId: accountId ?? undefined }),
+    buildFlowSeries(scope, {
+      granularity: trend.granularity,
+      buckets: trend.buckets,
+      accountId: accountId ?? undefined,
+    }),
+    listBudgetStatuses(scope),
+    listTransactions(scope, { period, limit: 25, accountId: accountId ?? undefined }),
+    listActiveReminders(scope),
+    latestBriefing(user.userId),
+    listCategories(user.userId),
+    listAccountBalances(scope),
+    listArchivedAccounts(user.userId),
+    recurringSummary(scope),
+  ]);
 
   const net = summary.netMinor;
+  const activeAccount = accountId ? balances.accounts.find((a) => a.id === accountId) : null;
 
   return (
     <Shell>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
-          <p className="text-xs text-ink-faint">{summary.periodLabel}</p>
+          <p className="text-xs text-ink-faint">
+            {summary.periodLabel}
+            {activeAccount && ` · ${activeAccount.name} only`}
+          </p>
         </div>
         <PeriodTabs current={period} />
       </div>
+
+      <AccountFilter accounts={balances.accounts} current={accountId} />
 
       {/* Above everything: a reminder that has come due is the app keeping a
           promise, and it outranks the numbers. */}
@@ -153,8 +189,13 @@ export default async function DashboardPage({
             categories={categories}
             accounts={balances.accounts}
           />
+          <RecurringPanel
+            items={recurring.items}
+            formattedMonthlyTotal={recurring.formattedMonthlyTotal}
+            activeCount={recurring.active.length}
+          />
           <UpcomingReminders reminders={reminders.upcoming} timezone={user.timezone} />
-          <BudgetsPanel budgets={budgets} categories={categories} />
+          <BudgetsPanel budgets={budgets} categories={categories} scoped={Boolean(activeAccount)} />
           <AssistantNudge />
         </div>
       </div>

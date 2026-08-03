@@ -168,7 +168,7 @@ These are missing today and each one blocks something above:
 | Gap | Why it matters |
 |---|---|
 | ~~**No accounts / wallets**~~ | Done. `Account` + per-account balances, and transfers as a linked pair excluded from every spending figure. SMS import routes by the masked card tail, and an ATM withdrawal is now a move to cash rather than a phantom expense. |
-| **No recurring / subscription model** | Not in the schema. Needed for "forgotten subscriptions." |
+| ~~**No recurring / subscription model**~~ | Done. `Recurring` with cadence detection, a monthly commitment total, and — the part a query could never give — price changes and charges that stopped arriving. |
 | **No user-level agent memory** | Thread summaries exist; durable corrections and preferences do not. |
 | ~~**Fixed category enum**~~ | Done. `Category` + `CategoryRule`, user-owned, with learned corrections. |
 | **Multi-currency is half-built** | Each transaction stores a currency, but nothing converts. Matters for anyone earning USD in LK. The SMS importer now *detects* a foreign amount and refuses to guess a rate, which is honest but not a feature. |

@@ -25,6 +25,7 @@ import {
   recordTransfer,
 } from '@/lib/finance/accounts';
 import { resolveCategory } from '@/lib/finance/categories';
+import { refreshRecurring } from '@/lib/finance/recurring';
 import { formatDateInZone, parseOccurredAt } from '@/lib/agent/time';
 import { parseMessage } from '@/lib/import/sms';
 import { resolveUser, SESSION_COOKIE } from '@/lib/session';
@@ -223,6 +224,15 @@ export async function importMessages(
   // `skipDuplicates` on top of the pre-filter: the check above is a nicety for
   // the count we report, the unique index is what actually guarantees it.
   const { count } = await prisma.transaction.createMany({ data: fresh, skipDuplicates: true });
+
+  // An import is the one moment months of history arrives at once, which is
+  // exactly when a subscription becomes visible. Best-effort: a failed scan
+  // must not fail an import that already wrote its rows.
+  if (count > 0) {
+    await refreshRecurring({ userId, currency, timezone, now }).catch((err) =>
+      console.error('[import] recurring scan failed:', err),
+    );
+  }
 
   revalidatePath('/');
   revalidatePath('/summary');

@@ -37,6 +37,7 @@ model User {
   categories     Category[]
   categoryRules  CategoryRule[]
   accounts       Account[]
+  recurring      Recurring[]
 
   @@map("users")
 }
@@ -331,6 +332,78 @@ model Insight {
   @@unique([userId, dedupeKey])
   @@index([userId, createdAt])
   @@map("insights")
+}
+
+// ── Recurring charges ───────────────────────────────────────────────────────
+// The subscriptions and standing charges someone is paying, whether or not
+// they remember agreeing to them.
+//
+// This is stored rather than recomputed on every read for one reason: the
+// interesting facts are about CHANGE. "Netflix went from Rs 1,200 to Rs 1,500"
+// and "the gym has not charged you since April" only exist if something
+// remembers what was true last time. A pure query over the ledger can tell you
+// what is there; it cannot tell you what moved.
+//
+// Rows are found by lib/finance/recurring.ts and confirmed or dismissed by the
+// person — a detected charge is a suggestion, never a fact about their life.
+
+enum RecurringCadence {
+  weekly
+  monthly
+  yearly
+}
+
+enum RecurringStatus {
+  /// Still being charged.
+  active
+  /// Known about, deliberately ignored for now.
+  paused
+  /// They say they have cancelled it. Kept so we don't "discover" it again.
+  cancelled
+}
+
+model Recurring {
+  id     String @id @default(cuid())
+  userId String
+
+  /// As it appears on the statement.
+  merchant String
+  /// Lowercased merchant — the key charges are matched on.
+  matchKey String
+
+  /// The most recent amount. Changes here are the point of the whole model.
+  amountMinor Int
+  currency    String
+  category    String
+
+  cadence RecurringCadence @default(monthly)
+
+  /// When it last actually appeared in the ledger.
+  lastSeenAt DateTime
+  /// When the next one is expected, rolled forward as charges land.
+  nextDueAt  DateTime
+  /// How many charges we have matched. Stands in for confidence.
+  occurrences Int @default(1)
+
+  status RecurringStatus @default(active)
+  /// `detected` when we found it, `manual` when they added it.
+  source String @default("detected")
+
+  /// The amount before the last change, so a price rise can be said once.
+  previousAmountMinor Int?
+  priceChangedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One row per merchant per rhythm. A price change updates this row rather
+  /// than creating a second one beside it — otherwise the ledger grows a new
+  /// "subscription" every time a price goes up.
+  @@unique([userId, matchKey, cadence])
+  @@index([userId, status, nextDueAt])
+  @@map("recurring")
 }
 
 // ── Reminders ───────────────────────────────────────────────────────────────

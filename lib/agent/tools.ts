@@ -31,6 +31,7 @@ import {
 import { formatMoney, toMinor } from '../money';
 import { rememberCategoryRule, resolveCategory } from '../finance/categories';
 import { defaultAccountId, recordTransfer, resolveAccount } from '../finance/accounts';
+import { recurringSummary } from '../finance/recurring';
 import type {
   BudgetStatus,
   PendingClientAction,
@@ -240,6 +241,40 @@ export function buildTools(runtime: ToolRuntime) {
           .optional()
           .describe('ISO date (YYYY-MM-DD). Omit if it just happened.'),
       }),
+    },
+  );
+
+  // ---- list_subscriptions -------------------------------------------------
+
+  const listSubscriptions = tool(
+    async () => {
+      const summary = await recurringSummary(scope());
+      if (summary.active.length === 0) {
+        return 'No repeating charges detected yet. It takes three charges on a steady rhythm before one is recognised.';
+      }
+
+      const lines = summary.active
+        .slice(0, 8)
+        .map((item) => {
+          const bits = [`${item.merchant}: ${item.formattedAmount} ${item.cadence}`];
+          if (item.priceChange) bits.push(`price changed (${item.priceChange.formatted})`);
+          if (item.overdueDays > 0) bits.push(`${item.overdueDays} days overdue`);
+          return `- ${bits.join(', ')}`;
+        })
+        .join('\n');
+
+      push(runtime, { type: 'navigate', screen: 'transactions' });
+      return `${summary.formattedMonthlyTotal} a month across ${summary.active.length} repeating charges.\n${lines}`;
+    },
+    {
+      name: 'list_subscriptions',
+      description: [
+        'Their subscriptions and standing charges, with what each costs and whether',
+        'anything changed. Use for "what am I subscribed to", "where is my money going',
+        'every month", "can I cut anything". Prices that moved and charges that stopped',
+        'arriving are the parts worth repeating back — the rest they already know.',
+      ].join(' '),
+      schema: z.object({}),
     },
   );
 
@@ -652,6 +687,7 @@ export function buildTools(runtime: ToolRuntime) {
   return [
     logTransaction,
     transferMoney,
+    listSubscriptions,
     getSpendingSummary,
     listTransactions,
     setBudget,

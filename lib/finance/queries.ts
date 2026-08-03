@@ -177,15 +177,20 @@ export async function listBudgetStatuses(
 export async function buildSpendingSummary(
   scope: LedgerScope,
   period: PeriodKey,
+  options: { accountId?: string } = {},
 ): Promise<SpendingSummary> {
   const window = resolvePeriod(period, scope.now, scope.timezone);
   const money = (minor: number) => formatMoney(minor, scope.currency);
+  // Narrows every figure to one pocket. The comparison window narrows with it,
+  // or "up 40% on last month" would be one account measured against all of them.
+  const account = options.accountId ? { accountId: options.accountId } : {};
 
   const [rows, previousAgg] = await Promise.all([
     prisma.transaction.findMany({
       where: {
         userId: scope.userId,
         occurredAt: { gte: window.from, lt: window.to },
+        ...account,
         ...EXCLUDE_TRANSFERS,
       },
       select: { kind: true, amountMinor: true, category: true },
@@ -196,6 +201,7 @@ export async function buildSpendingSummary(
             userId: scope.userId,
             kind: 'expense',
             occurredAt: { gte: window.previousFrom, lt: window.previousTo! },
+            ...account,
             ...EXCLUDE_TRANSFERS,
           },
           _sum: { amountMinor: true },
@@ -327,7 +333,12 @@ function trendBuckets(
  */
 export async function buildFlowSeries(
   scope: LedgerScope,
-  options: { granularity?: Granularity; buckets?: number; category?: string } = {},
+  options: {
+    granularity?: Granularity;
+    buckets?: number;
+    category?: string;
+    accountId?: string;
+  } = {},
 ): Promise<FlowPoint[]> {
   const granularity = options.granularity ?? 'month';
   const buckets = Math.min(Math.max(options.buckets ?? 6, 2), 24);
@@ -339,6 +350,7 @@ export async function buildFlowSeries(
       userId: scope.userId,
       occurredAt: { gte: spans[0].from, lt: spans[spans.length - 1].to },
       ...(options.category ? { category: options.category } : {}),
+      ...(options.accountId ? { accountId: options.accountId } : {}),
       ...EXCLUDE_TRANSFERS,
     },
     select: { kind: true, amountMinor: true, occurredAt: true },
@@ -385,6 +397,7 @@ export async function listTransactionsInRange(
   scope: LedgerScope,
   from: Date,
   to: Date,
+  options: { accountId?: string } = {},
 ): Promise<{
   transactions: TransactionView[];
   incomeMinor: number;
@@ -392,7 +405,11 @@ export async function listTransactionsInRange(
   netMinor: number;
 }> {
   const rows = await prisma.transaction.findMany({
-    where: { userId: scope.userId, occurredAt: { gte: from, lt: to } },
+    where: {
+      userId: scope.userId,
+      occurredAt: { gte: from, lt: to },
+      ...(options.accountId ? { accountId: options.accountId } : {}),
+    },
     orderBy: { occurredAt: 'asc' },
     include: WITH_ACCOUNT,
   });
@@ -409,7 +426,9 @@ export async function listTransactionsInRange(
   }
 
   return {
-    transactions: collapseTransferLegs(rows).map(toTransactionView),
+    // Scoped to one account, the leg that touched THAT account is the one worth
+    // seeing — collapsing would hide every transfer into it.
+    transactions: (options.accountId ? rows : collapseTransferLegs(rows)).map(toTransactionView),
     incomeMinor,
     expenseMinor,
     netMinor: incomeMinor - expenseMinor,

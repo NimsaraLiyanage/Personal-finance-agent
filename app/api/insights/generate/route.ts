@@ -11,6 +11,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 import { prisma } from '@/lib/db';
 import { generateWeeklyBriefing } from '@/lib/insights/briefing';
+import { refreshRecurring } from '@/lib/finance/recurring';
 import type { LedgerScope } from '@/lib/finance/queries';
 
 export const runtime = 'nodejs';
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
   });
 
   const results: Array<{ userId: string; status: 'written' | 'skipped' | 'failed' }> = [];
+  let scanned = 0;
 
   for (const user of active) {
     const scope: LedgerScope = {
@@ -55,6 +57,16 @@ export async function POST(request: NextRequest) {
     };
 
     try {
+      // Detection first, briefing second — the briefing reads the recurring
+      // model, so a scan that ran afterwards would be a week too late to be
+      // mentioned. A failure here must not cost them the briefing itself.
+      try {
+        await refreshRecurring(scope);
+        scanned++;
+      } catch (err) {
+        console.error('[insights] recurring scan failed', user.id, (err as Error).message);
+      }
+
       const briefing = await generateWeeklyBriefing(scope);
       results.push({ userId: user.id, status: briefing ? 'written' : 'skipped' });
     } catch (err) {
@@ -66,6 +78,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     considered: active.length,
+    scanned,
     written: results.filter((r) => r.status === 'written').length,
     skipped: results.filter((r) => r.status === 'skipped').length,
     failed: results.filter((r) => r.status === 'failed').length,

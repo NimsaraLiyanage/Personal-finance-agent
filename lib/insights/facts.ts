@@ -18,6 +18,7 @@ import {
   monthProgress,
   type LedgerScope,
 } from '../finance/queries';
+import { recurringSummary, type RecurringView } from '../finance/recurring';
 
 export interface Mover {
   category: string;
@@ -43,8 +44,18 @@ export interface BudgetRisk {
 export interface RecurringCharge {
   merchant: string;
   formatted: string;
-  /** How many distinct months it appeared in, over the window checked. */
+  /** How many charges have been matched to it. */
   months: number;
+  /** "Netflix went from Rs 1,200 to Rs 1,500", already worded. */
+  priceChange: string | null;
+  /** Days past the expected date. Above zero means it stopped arriving. */
+  overdueDays: number;
+}
+
+export interface RecurringFacts {
+  charges: RecurringCharge[];
+  formattedMonthlyTotal: string;
+  activeCount: number;
 }
 
 export interface BriefingFacts {
@@ -77,7 +88,7 @@ export interface BriefingFacts {
     formatted: string;
     occurredAt: string;
   } | null;
-  recurring: RecurringCharge[];
+  recurring: RecurringFacts;
   /** Nothing happened this week — the caller should skip the briefing entirely. */
   quiet: boolean;
 }
@@ -220,59 +231,48 @@ export async function gatherBriefingFacts(scope: LedgerScope): Promise<BriefingF
 }
 
 /**
- * Charges that look like subscriptions: the same merchant billing the same
- * amount in three or more distinct months.
+ * Subscriptions and standing charges, read from the model that tracks them.
  *
- * A heuristic, deliberately. A real recurring-transaction model is a separate
- * piece of work; this catches the "what is this Rs 1,200 I've been paying since
- * March" case today, which is the one people actually care about.
+ * This used to be re-derived here on every briefing. It cannot be any more, and
+ * that is exactly the point of having a model: the facts worth a sentence are
+ * "the price went up" and "it stopped arriving", and neither of those exists in
+ * a snapshot of the ledger. Only something that remembers last week's answer
+ * can notice that this week's is different.
+ *
+ * Detection runs in the same job, just before this — see the insights route.
  */
-async function findRecurringCharges(scope: LedgerScope): Promise<RecurringCharge[]> {
-  const from = monthBounds(
-    new Date(scope.now.getTime() - 100 * 86_400_000),
-    scope.timezone,
-  ).start;
+async function findRecurringCharges(scope: LedgerScope): Promise<RecurringFacts> {
+  const summary = await recurringSummary(scope);
 
-  const rows = await prisma.transaction.findMany({
-    where: {
-      userId: scope.userId,
-      kind: 'expense',
-      merchant: { not: null },
-      occurredAt: { gte: from },
-      // A weekly move between your own accounts is not a subscription.
-      ...EXCLUDE_TRANSFERS,
-    },
-    select: { merchant: true, amountMinor: true, occurredAt: true },
-  });
+  // The ones worth writing about lead: a price that moved, then one that has
+  // stopped arriving, then simply the most expensive.
+  const weight = (item: RecurringView) =>
+    (item.priceChange ? 2 : 0) + (item.overdueDays > 0 ? 1 : 0);
 
-  const groups = new Map<string, { merchant: string; amountMinor: number; months: Set<string> }>();
-  for (const row of rows) {
-    const key = `${row.merchant}|${row.amountMinor}`;
-    const month = new Intl.DateTimeFormat('en-CA', {
-      year: 'numeric',
-      month: '2-digit',
-      timeZone: scope.timezone,
-    }).format(row.occurredAt);
+  const ranked = [...summary.active].sort(
+    (a, b) => weight(b) - weight(a) || b.monthlyEquivalentMinor - a.monthlyEquivalentMinor,
+  );
 
-    const group = groups.get(key) ?? {
-      merchant: row.merchant!,
-      amountMinor: row.amountMinor,
-      months: new Set<string>(),
-    };
-    group.months.add(month);
-    groups.set(key, group);
-  }
-
-  return [...groups.values()]
-    .filter((g) => g.months.size >= 3)
-    .sort((a, b) => b.amountMinor - a.amountMinor)
-    .slice(0, 4)
-    .map((g) => ({
-      merchant: g.merchant,
-      formatted: formatMoney(g.amountMinor, scope.currency),
-      months: g.months.size,
-    }));
+  return {
+    charges: ranked.slice(0, 4).map((item) => ({
+      merchant: item.merchant,
+      formatted: `${item.formattedAmount} ${CADENCE_WORD[item.cadence]}`,
+      months: item.occurrences,
+      priceChange: item.priceChange
+        ? `was ${formatMoney(item.priceChange.fromMinor, scope.currency)}, now ${formatMoney(item.priceChange.toMinor, scope.currency)}`
+        : null,
+      overdueDays: item.overdueDays,
+    })),
+    formattedMonthlyTotal: summary.formattedMonthlyTotal,
+    activeCount: summary.active.length,
+  };
 }
+
+const CADENCE_WORD: Record<string, string> = {
+  weekly: 'a week',
+  monthly: 'a month',
+  yearly: 'a year',
+};
 
 function formatRange(from: Date, to: Date, timeZone: string): string {
   const fmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone });

@@ -35,8 +35,12 @@ A headline of at most 60 characters, then 2–4 short paragraphs.
 
 Lead with whatever a reasonable person would most want to know — usually the
 biggest change, a budget about to break, or a projection that lands badly. Then
-one or two supporting observations. If a recurring charge is listed, it is worth
-raising once: people forget subscriptions.
+one or two supporting observations.
+
+Recurring charges are worth a sentence, but rank them by what CHANGED, not by
+size. A subscription whose price moved, or one that has stopped arriving after
+months of turning up, is news. "You still pay for Netflix" is not — they know.
+Never guess why something stopped; say it stopped and let them tell you.
 
 End with one concrete, small thing they could do, only if the data supports one.
 No suggestion is better than an invented one.
