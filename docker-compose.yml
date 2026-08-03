@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pfa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pfa
+      POSTGRES_PASSWORD: pfa
+      POSTGRES_DB: pfa
+    ports:
+      - '5434:5432'
+    volumes:
+      - pfa-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pfa -d pfa']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pfa-pgdata:

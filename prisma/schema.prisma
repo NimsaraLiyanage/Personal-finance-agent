@@ -1,0 +1,166 @@
+// Personal Finance Agent — data model.
+//
+// Money is stored as INTEGER MINOR UNITS (cents) everywhere. Floats are never
+// used for money: 0.1 + 0.2 !== 0.3 in IEEE-754, and a ledger that drifts by a
+// cent per thousand rows is a ledger nobody trusts. The agent tools accept
+// decimal amounts from the model and convert at the boundary (lib/money.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 moved the connection URL out of the schema: the CLI reads it from
+// `prisma.config.ts` and the runtime gets it through the driver adapter in
+// lib/db.ts. One less place for a credential to sit.
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Identity ────────────────────────────────────────────────────────────────
+// Deliberately minimal. This is a portfolio demo, so a visitor gets an
+// anonymous user row keyed by a signed cookie instead of a full auth stack.
+// Swap this for Clerk/Auth.js by replacing lib/session.ts — nothing else in
+// the agent layer knows how a user id is obtained.
+
+model User {
+  id        String   @id @default(cuid())
+  label     String? // optional display name
+  currency  String   @default("USD")
+  timezone  String   @default("UTC")
+  createdAt DateTime @default(now())
+
+  transactions Transaction[]
+  budgets      Budget[]
+  threads      ChatThread[]
+  reminders    Reminder[]
+
+  @@map("users")
+}
+
+// ── Ledger ──────────────────────────────────────────────────────────────────
+
+enum TransactionKind {
+  expense
+  income
+}
+
+model Transaction {
+  id     String @id @default(cuid())
+  userId String
+
+  kind TransactionKind
+
+  /// Always positive, in minor units (cents). `kind` carries the sign.
+  amountMinor Int
+  currency    String
+
+  merchant String?
+  category String
+  note     String?
+
+  /// When the money actually moved — not when the row was written. The agent
+  /// backdates this from phrases like "yesterday" / "last Friday".
+  occurredAt DateTime
+  createdAt  DateTime @default(now())
+
+  /// Which surface created it: `chat`, `voice`, or `manual`.
+  source String @default("chat")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@index([userId, category, occurredAt])
+  @@map("transactions")
+}
+
+// ── Budgets ─────────────────────────────────────────────────────────────────
+
+model Budget {
+  id     String @id @default(cuid())
+  userId String
+
+  category  String
+  /// Monthly ceiling in minor units.
+  limitMinor Int
+  currency   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@map("budgets")
+}
+
+// ── Conversation ────────────────────────────────────────────────────────────
+
+model ChatThread {
+  id     String @id @default(cuid())
+  userId String
+
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Rolling summary of everything before `summaryThrough`. Keeps the prompt
+  /// bounded on long threads without losing early context.
+  summary        String?
+  summaryThrough DateTime?
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt])
+  @@map("chat_threads")
+}
+
+enum MessageRole {
+  user
+  assistant
+  tool
+}
+
+model ChatMessage {
+  id       String @id @default(cuid())
+  threadId String
+
+  role    MessageRole
+  content String      @db.Text
+
+  /// Populated only for `tool` rows — kept for audit/replay, never replayed
+  /// into the model (see lib/agent/graph.ts).
+  toolName    String?
+  toolPayload Json?
+
+  createdAt DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
+}
+
+// ── Reminders ───────────────────────────────────────────────────────────────
+
+model Reminder {
+  id     String @id @default(cuid())
+  userId String
+
+  title    String
+  body     String
+  dueAt    DateTime
+  category String   @default("general")
+
+  /// Idempotency key so a re-asked question doesn't stack duplicates.
+  dedupeKey String?
+
+  firedAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, dueAt])
+  @@map("reminders")
+}

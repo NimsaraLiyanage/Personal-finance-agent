@@ -1,0 +1,84 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-canvas: oklch(0.16 0.012 260);
+  --color-surface: oklch(0.21 0.014 260);
+  --color-surface-2: oklch(0.25 0.016 260);
+  --color-line: oklch(0.32 0.018 260);
+  --color-ink: oklch(0.96 0.004 260);
+  --color-ink-dim: oklch(0.72 0.014 260);
+  --color-ink-faint: oklch(0.56 0.014 260);
+
+  --color-accent: oklch(0.78 0.15 168);
+  --color-accent-dim: oklch(0.5 0.09 168);
+  --color-warn: oklch(0.8 0.15 78);
+  --color-danger: oklch(0.68 0.19 22);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tabular figures everywhere money appears — otherwise columns of numbers
+     jitter as digits change width. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 0.875rem;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-rise {
+    animation: rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-accent) 55%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 14px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+
+  .animate-pulse-ring {
+    animation: pulse-ring 1.6s ease-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-rise,
+    .animate-pulse-ring {
+      animation: none;
+    }
+  }
+}
