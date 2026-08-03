@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 import { resolveOwnedThread } from '@/lib/agent/persistence';
 import { createToolRuntime } from '@/lib/agent/types';
 import { streamTurn, SSE_HEADERS } from '@/lib/agent/stream';
@@ -56,9 +56,7 @@ export async function POST(request: NextRequest) {
 
   const stream = streamTurn({ runtime: toolRuntime, userMessage: parsed.data.message });
 
-  const response = new NextResponse(stream, { headers: SSE_HEADERS });
-  if (session.setCookie) {
-    response.cookies.set(SESSION_COOKIE.name, session.setCookie, SESSION_COOKIE.options);
-  }
-  return response;
+  // No cookie handling here: `resolveUser` goes through Better Auth, which
+  // sets its own session cookie via the `nextCookies` plugin.
+  return new NextResponse(stream, { headers: SSE_HEADERS });
 }

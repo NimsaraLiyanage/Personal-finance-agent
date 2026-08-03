@@ -12,7 +12,6 @@
 // ledger.
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/db';
@@ -27,7 +26,7 @@ import {
 } from '@/lib/finance/accounts';
 import { acknowledgeReminder, deleteReminder } from '@/lib/finance/reminders';
 import { toMinor } from '@/lib/money';
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 import { resolveCategory } from '@/lib/finance/categories';
 import { parseOccurredAt } from '@/lib/agent/time';
 
@@ -36,14 +35,9 @@ export interface ActionResult {
   error?: string;
 }
 
-/** Resolve the user and, when one was just minted, issue its cookie. */
+/** Better Auth issues its own cookie via the `nextCookies` plugin. */
 async function session() {
-  const resolved = await resolveUser();
-  if (resolved.setCookie) {
-    const jar = await cookies();
-    jar.set(SESSION_COOKIE.name, resolved.setCookie, SESSION_COOKIE.options);
-  }
-  return resolved;
+  return resolveUser();
 }
 
 function refresh() {

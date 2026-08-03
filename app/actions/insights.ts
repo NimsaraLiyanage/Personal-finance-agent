@@ -8,9 +8,8 @@
 // account the caller doesn't own.
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 import { generateWeeklyBriefing, markInsightRead } from '@/lib/insights/briefing';
 import type { LedgerScope } from '@/lib/finance/queries';
 
@@ -21,13 +20,9 @@ export interface InsightActionResult {
   quiet?: boolean;
 }
 
+/** Better Auth issues its own cookie via the `nextCookies` plugin. */
 async function session() {
-  const resolved = await resolveUser();
-  if (resolved.setCookie) {
-    const jar = await cookies();
-    jar.set(SESSION_COOKIE.name, resolved.setCookie, SESSION_COOKIE.options);
-  }
-  return resolved;
+  return resolveUser();
 }
 
 /** Write this week's briefing if it doesn't exist yet. */

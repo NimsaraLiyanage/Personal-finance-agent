@@ -1,121 +1,169 @@
-// Demo session: an anonymous user identified by an HMAC-signed cookie.
+// How a request becomes a user id.
 //
-// This is the ONLY module that knows how a request maps to a user id. Every
-// agent tool receives an already-resolved `userId`, so swapping this for
-// Clerk / Auth.js / NextAuth is a one-file change — the agent layer never
-// learns what authentication is.
+// This is still the ONLY module that knows. That was the point of the original
+// shape and it survived the change: swapping a signed cookie for Better Auth
+// touched this file, and every tool, action and route above it kept working
+// unchanged. The agent layer has never learned what authentication is.
 //
-// The signature matters even for a demo: without it the cookie is a raw user
-// id and anyone can read anyone else's ledger by editing it in devtools.
+// Three cases, in order:
+//
+//   1. A Better Auth session — signed in with Google or a magic link, or an
+//      anonymous account created on a previous visit.
+//   2. A legacy `pfa_uid` cookie from before there was a login. Bridged once:
+//      a Better Auth anonymous account is minted, the old ledger is moved onto
+//      it, and the old cookie is retired. Nobody loses a month of entries
+//      because we changed auth libraries.
+//   3. Nothing. `readUser` returns null (a Server Component cannot mint one);
+//      `resolveUser` creates an anonymous account, because it is only ever
+//      called by something that is about to write.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
+
+import { auth } from './auth';
+import { mergeLedger } from './auth/merge';
 import { prisma } from './db';
 
-const COOKIE_NAME = 'pfa_uid';
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+const LEGACY_COOKIE = 'pfa_uid';
 
-function secret(): string {
-  const value = process.env.SESSION_SECRET;
-  if (!value || value.length < 16) {
-    throw new Error('SESSION_SECRET must be set to a random string of 16+ chars');
-  }
-  return value;
-}
-
-function sign(userId: string): string {
-  return createHmac('sha256', secret()).update(userId).digest('base64url');
-}
-
-function verify(value: string): string | null {
-  const idx = value.lastIndexOf('.');
-  if (idx <= 0) return null;
-  const userId = value.slice(0, idx);
-  const provided = value.slice(idx + 1);
-  const expected = sign(userId);
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  // timingSafeEqual throws on length mismatch — check first.
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return userId;
-}
-
-/**
- * Resolve the current user, creating one on first visit.
- *
- * Returns the id plus the cookie value the caller must set when a new user was
- * minted. Route handlers set it on their own response; Server Components can
- * only read cookies, so they get `setCookie: null` and rely on the route that
- * ran first.
- */
-export async function resolveUser(): Promise<{
+export interface SessionUser {
   userId: string;
   currency: string;
   timezone: string;
-  setCookie: string | null;
-}> {
+}
+
+// ── The legacy cookie ───────────────────────────────────────────────────────
+
+function legacySecret(): string | null {
+  const value = process.env.SESSION_SECRET;
+  return value && value.length >= 16 ? value : null;
+}
+
+function verifyLegacy(value: string): string | null {
+  const secret = legacySecret();
+  if (!secret) return null;
+
+  const idx = value.lastIndexOf('.');
+  if (idx <= 0) return null;
+
+  const userId = value.slice(0, idx);
+  const provided = Buffer.from(value.slice(idx + 1));
+  const expected = Buffer.from(createHmac('sha256', secret).update(userId).digest('base64url'));
+
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
+  return userId;
+}
+
+/** The id behind a still-valid legacy cookie, if that user row still exists. */
+async function legacyUserId(): Promise<string | null> {
   const jar = await cookies();
-  const raw = jar.get(COOKIE_NAME)?.value;
+  const raw = jar.get(LEGACY_COOKIE)?.value;
+  if (!raw) return null;
 
-  if (raw) {
-    const userId = verify(raw);
-    if (userId) {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (user) {
-        return { userId: user.id, currency: user.currency, timezone: user.timezone, setCookie: null };
-      }
-    }
+  const userId = verifyLegacy(raw);
+  if (!userId) return null;
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  return user?.id ?? null;
+}
+
+function clearLegacyCookie(jar: Awaited<ReturnType<typeof cookies>>) {
+  // `delete` rather than expire-in-place: the bridge has already moved the
+  // data, and a cookie left behind would try to bridge again next request.
+  try {
+    jar.delete(LEGACY_COOKIE);
+  } catch {
+    // Server Components cannot write cookies. The bridge runs from a write
+    // path, so this only ever fires on a read and is harmless there.
   }
+}
 
-  const user = await prisma.user.create({
-    data: {
-      currency: process.env.DEFAULT_CURRENCY?.trim().toUpperCase() || 'USD',
-      timezone: process.env.DEFAULT_TIMEZONE?.trim() || 'UTC',
-    },
+// ── Reading ─────────────────────────────────────────────────────────────────
+
+async function currentSessionUserId(): Promise<string | null> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  return session?.user?.id ?? null;
+}
+
+async function load(userId: string): Promise<SessionUser | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, currency: true, timezone: true },
   });
-  return {
-    userId: user.id,
-    currency: user.currency,
-    timezone: user.timezone,
-    setCookie: `${user.id}.${sign(user.id)}`,
-  };
+  if (!user) return null;
+  return { userId: user.id, currency: user.currency, timezone: user.timezone };
 }
 
 /**
  * Read the current user without ever creating one.
  *
- * Server Components can read cookies but not set them, so `resolveUser` is
- * unusable during render: a first-time visitor would mint a fresh user row on
- * every paint, none of which they could ever be issued a cookie for. Pages call
- * this instead and render their empty state when it returns null — the row gets
- * created by the first write (a Server Action) or the first chat turn, both of
- * which can set the cookie on their response.
+ * Server Components can read cookies but not set them, so a function that
+ * creates users is unusable during render: a first-time visitor would mint a
+ * row on every paint and never be issued a cookie for any of them. Pages call
+ * this and render their empty state on null; the row is created by the first
+ * write, which is a Server Action or a route handler and can set cookies.
  */
-export async function readUser(): Promise<{
-  userId: string;
-  currency: string;
-  timezone: string;
-} | null> {
-  const jar = await cookies();
-  const raw = jar.get(COOKIE_NAME)?.value;
-  if (!raw) return null;
+export async function readUser(): Promise<SessionUser | null> {
+  const sessionUserId = await currentSessionUserId();
+  if (sessionUserId) return load(sessionUserId);
 
-  const userId = verify(raw);
-  if (!userId) return null;
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return null;
-
-  return { userId: user.id, currency: user.currency, timezone: user.timezone };
+  // A legacy visitor still sees their own ledger while reading. The bridge
+  // itself waits for a write.
+  const legacy = await legacyUserId();
+  return legacy ? load(legacy) : null;
 }
 
+/**
+ * Resolve the current user, creating an anonymous one if there is none.
+ *
+ * Only called from paths that are about to write, which is what makes creating
+ * a row here reasonable.
+ */
+export async function resolveUser(): Promise<SessionUser & { setCookie: null }> {
+  const requestHeaders = await headers();
+  const sessionUserId = await auth.api
+    .getSession({ headers: requestHeaders })
+    .then((s) => s?.user?.id ?? null);
+
+  if (sessionUserId) {
+    const existing = await load(sessionUserId);
+    if (existing) return { ...existing, setCookie: null };
+  }
+
+  // Mint the anonymous account. Better Auth writes its own cookie through the
+  // `nextCookies` plugin, which is why `setCookie` is always null now.
+  const created = await auth.api.signInAnonymous({ headers: requestHeaders });
+  const newUserId = created?.user?.id;
+  if (!newUserId) throw new Error('Could not start a session');
+
+  // The bridge: an older ledger, moved onto the new account exactly once.
+  const legacy = await legacyUserId();
+  if (legacy && legacy !== newUserId) {
+    const report = await mergeLedger(legacy, newUserId);
+    await prisma.user.delete({ where: { id: legacy } }).catch(() => {});
+    clearLegacyCookie(await cookies());
+    console.info('[auth] bridged legacy cookie ledger', legacy, '→', newUserId, report);
+  }
+
+  const user = await load(newUserId);
+  if (!user) throw new Error('Could not start a session');
+  return { ...user, setCookie: null };
+}
+
+/**
+ * Kept so callers do not have to change.
+ *
+ * @deprecated Better Auth sets its own cookie; `resolveUser().setCookie` is
+ * always null and the branches that read it are dead. Left in place only until
+ * the call sites are tidied.
+ */
 export const SESSION_COOKIE = {
-  name: COOKIE_NAME,
+  name: LEGACY_COOKIE,
   options: {
     httpOnly: true,
     sameSite: 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    maxAge: MAX_AGE_SECONDS,
+    maxAge: 0,
   },
 };

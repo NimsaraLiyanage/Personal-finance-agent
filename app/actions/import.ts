@@ -14,7 +14,6 @@
 // way to use this feature is to paste an overlapping range every few days.
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/db';
@@ -28,15 +27,11 @@ import { resolveCategory } from '@/lib/finance/categories';
 import { refreshRecurring } from '@/lib/finance/recurring';
 import { formatDateInZone, parseOccurredAt } from '@/lib/agent/time';
 import { parseMessage } from '@/lib/import/sms';
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 
+/** Better Auth issues its own cookie via the `nextCookies` plugin. */
 async function session() {
-  const resolved = await resolveUser();
-  if (resolved.setCookie) {
-    const jar = await cookies();
-    jar.set(SESSION_COOKIE.name, resolved.setCookie, SESSION_COOKIE.options);
-  }
-  return resolved;
+  return resolveUser();
 }
 
 /**

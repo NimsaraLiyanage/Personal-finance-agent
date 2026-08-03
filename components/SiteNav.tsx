@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+import AccountMenu from '@/components/auth/AccountMenu';
 import { CONTAINER } from '@/components/ui/container';
 
 const LINKS = [
@@ -45,6 +46,10 @@ export default function SiteNav() {
             );
           })}
         </nav>
+
+        <div className="ml-auto">
+          <AccountMenu />
+        </div>
       </div>
     </header>
   );

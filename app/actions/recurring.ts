@@ -7,7 +7,6 @@
 // membership someone quit in March is one they stop trusting about anything.
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 
 import {
   forgetRecurring,
@@ -16,20 +15,16 @@ import {
   type RecurringStatus,
 } from '@/lib/finance/recurring';
 import type { LedgerScope } from '@/lib/finance/queries';
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
 }
 
+/** Better Auth issues its own cookie via the `nextCookies` plugin. */
 async function session() {
-  const resolved = await resolveUser();
-  if (resolved.setCookie) {
-    const jar = await cookies();
-    jar.set(SESSION_COOKIE.name, resolved.setCookie, SESSION_COOKIE.options);
-  }
-  return resolved;
+  return resolveUser();
 }
 
 function refresh() {

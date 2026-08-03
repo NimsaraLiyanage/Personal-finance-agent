@@ -6,7 +6,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 import { resolveOwnedThread } from '@/lib/agent/persistence';
 import { getVoiceProvider, defaultVoiceMode } from '@/lib/voice';
 
@@ -38,11 +38,7 @@ export async function POST(request: NextRequest) {
       clientNow: parsed.data.clientNow,
     });
 
-    const response = NextResponse.json(voiceSession);
-    if (session.setCookie) {
-      response.cookies.set(SESSION_COOKIE.name, session.setCookie, SESSION_COOKIE.options);
-    }
-    return response;
+    return NextResponse.json(voiceSession);
   } catch (err) {
     console.error('[voice] session mint failed:', err);
     return NextResponse.json(

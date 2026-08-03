@@ -17,17 +17,41 @@ datasource db {
 }
 
 // ── Identity ────────────────────────────────────────────────────────────────
-// Deliberately minimal. This is a portfolio demo, so a visitor gets an
-// anonymous user row keyed by a signed cookie instead of a full auth stack.
-// Swap this for Clerk/Auth.js by replacing lib/session.ts — nothing else in
-// the agent layer knows how a user id is obtained.
+// Authentication is Better Auth, running in this process against this database.
+// It is not a hosted service: `User` sits in the same Postgres as the ledger, so
+// every relation below is an ordinary foreign key rather than a join against
+// someone else's API — and a finance app in a market where the competition
+// advertises "we can't see your data" does not hand identity to a US SaaS.
+//
+// A visitor still gets an anonymous account and a working ledger before they
+// sign in. When they do, the anonymous rows are moved onto the real account
+// (lib/auth.ts, `onLinkAccount`); nothing is orphaned and nothing is behind a
+// sign-up wall.
+//
+// Better Auth's own `Account`/`Session`/`Verification` models are mapped to
+// `AuthAccount`/`AuthSession`/`AuthVerification` below, because `Account` is
+// already taken by the thing a user actually calls an account — their wallet.
 
 model User {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
+
+  // ── Better Auth's required shape ──
+  /// Anonymous users get a generated address; it is replaced on sign-in.
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  name          String   @default("")
+  image         String?
+  /// Set by the anonymous plugin. False once they have really signed in.
+  isAnonymous   Boolean  @default(false)
+  updatedAt     DateTime @default(now()) @updatedAt
+
   label     String? // optional display name
   currency  String   @default("USD")
   timezone  String   @default("UTC")
   createdAt DateTime @default(now())
+
+  sessions     AuthSession[]
+  authAccounts AuthAccount[]
 
   transactions   Transaction[]
   budgets        Budget[]
@@ -40,6 +64,65 @@ model User {
   recurring      Recurring[]
 
   @@map("users")
+}
+
+// Better Auth's own tables. Shape is dictated by the library — the only local
+// decision is the names, which are prefixed so `Account` can go on meaning a
+// wallet. Mapped back in lib/auth.ts via `modelName`.
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+model AuthAccount {
+  id String @id @default(cuid())
+
+  /// The id this provider knows them by, and which provider it is.
+  accountId  String
+  providerId String
+
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  /// Unused: this deployment is Google and magic link only, no passwords.
+  password              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model AuthVerification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@index([identifier])
+  @@map("auth_verifications")
 }
 
 // ── Accounts ────────────────────────────────────────────────────────────────

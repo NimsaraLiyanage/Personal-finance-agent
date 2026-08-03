@@ -44,8 +44,17 @@ function between(min: number, max: number): number {
 async function main() {
   const currency = process.env.DEFAULT_CURRENCY?.toUpperCase() || 'USD';
 
+  // Seeded as an anonymous account, the same shape a first-time visitor gets.
+  // Signing in later merges this ledger onto the real account.
   const user = await prisma.user.create({
-    data: { label: 'Demo', currency, timezone: process.env.DEFAULT_TIMEZONE || 'UTC' },
+    data: {
+      label: 'Demo',
+      name: 'Demo',
+      email: `seed-${Date.now().toString(36)}@anonymous.local`,
+      isAnonymous: true,
+      currency,
+      timezone: process.env.DEFAULT_TIMEZONE || 'UTC',
+    },
   });
 
   const now = new Date();

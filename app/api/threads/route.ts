@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { resolveUser, SESSION_COOKIE } from '@/lib/session';
+import { resolveUser } from '@/lib/session';
 import { listThreads } from '@/lib/agent/persistence';
 
 export const runtime = 'nodejs';
@@ -19,8 +19,5 @@ export async function GET() {
     })),
   });
 
-  if (session.setCookie) {
-    response.cookies.set(SESSION_COOKIE.name, session.setCookie, SESSION_COOKIE.options);
-  }
   return response;
 }
