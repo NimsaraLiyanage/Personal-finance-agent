@@ -19,7 +19,7 @@ import { prisma } from '@/lib/db';
 import { acknowledgeReminder, deleteReminder } from '@/lib/finance/reminders';
 import { toMinor } from '@/lib/money';
 import { resolveUser, SESSION_COOKIE } from '@/lib/session';
-import { CATEGORIES } from '@/lib/agent/types';
+import { resolveCategory } from '@/lib/finance/categories';
 import { parseOccurredAt } from '@/lib/agent/time';
 
 export interface ActionResult {
@@ -48,7 +48,9 @@ const TransactionSchema = z.object({
   kind: z.enum(['expense', 'income']),
   // Comes off an <input type="number">, so it arrives as a string.
   amount: z.coerce.number().positive('Amount must be greater than zero.'),
-  category: z.enum(CATEGORIES),
+  // Free text: the manual form and the agent must be able to create the same
+  // user-owned category, so both go through resolveCategory below.
+  category: z.string().trim().min(1).max(40),
   merchant: z.string().trim().max(80).optional(),
   note: z.string().trim().max(200).optional(),
   occurredOn: z
@@ -75,6 +77,10 @@ export async function addTransaction(formData: FormData): Promise<ActionResult> 
   const amountMinor = toMinor(parsed.data.amount, currency);
   if (amountMinor <= 0) return { ok: false, error: 'Amount must be greater than zero.' };
 
+  const category = await resolveCategory(userId, parsed.data.category, {
+    merchant: parsed.data.merchant,
+  });
+
   await prisma.transaction.create({
     data: {
       userId,
@@ -82,7 +88,7 @@ export async function addTransaction(formData: FormData): Promise<ActionResult> 
       amountMinor,
       currency,
       merchant: parsed.data.merchant || null,
-      category: parsed.data.category,
+      category,
       note: parsed.data.note || null,
       occurredAt: parseOccurredAt(parsed.data.occurredOn, new Date(), timezone),
       source: 'manual',
@@ -108,7 +114,7 @@ export async function removeTransaction(id: string): Promise<ActionResult> {
 // ── Budgets ─────────────────────────────────────────────────────────────────
 
 const BudgetSchema = z.object({
-  category: z.enum(CATEGORIES),
+  category: z.string().trim().min(1).max(40),
   monthlyLimit: z.coerce.number().positive('A budget must be greater than zero.'),
 });
 
@@ -126,9 +132,10 @@ export async function saveBudget(formData: FormData): Promise<ActionResult> {
   const limitMinor = toMinor(parsed.data.monthlyLimit, currency);
   if (limitMinor <= 0) return { ok: false, error: 'A budget must be greater than zero.' };
 
+  const category = await resolveCategory(userId, parsed.data.category);
   await prisma.budget.upsert({
-    where: { userId_category: { userId, category: parsed.data.category } },
-    create: { userId, category: parsed.data.category, limitMinor, currency },
+    where: { userId_category: { userId, category } },
+    create: { userId, category, limitMinor, currency },
     update: { limitMinor, currency },
   });
 

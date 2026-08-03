@@ -10,6 +10,7 @@
 // context window and cost more than the tool call it saves.
 
 import { prisma } from '../db';
+import { listCategories, listCategoryRules } from '../finance/categories';
 import { formatMoney } from '../money';
 import { monthBounds, nowInZone, formatDateInZone } from './time';
 import type { Category } from './types';
@@ -24,6 +25,10 @@ export interface AccountSnapshot {
   topCategories: Array<{ category: Category; totalMinor: number }>;
   budgets: Array<{ category: Category; limitMinor: number; spentMinor: number }>;
   lastTransactionAt: string | null;
+  /** The user's own category list — the vocabulary the model should stick to. */
+  categories: Array<{ slug: string; label: string }>;
+  /** Corrections they have already made. Repeating a fixed mistake is the worst failure here. */
+  rules: Array<{ pattern: string; categorySlug: string }>;
 }
 
 export async function loadAccountSnapshot(args: {
@@ -35,7 +40,7 @@ export async function loadAccountSnapshot(args: {
   const now = nowInZone(args.clientNow, args.timezone);
   const { start, end } = monthBounds(now, args.timezone);
 
-  const [transactions, budgets, latest] = await Promise.all([
+  const [transactions, budgets, latest, categories, rules] = await Promise.all([
     prisma.transaction.findMany({
       where: { userId: args.userId, occurredAt: { gte: start, lt: end } },
       select: { kind: true, amountMinor: true, category: true },
@@ -49,6 +54,8 @@ export async function loadAccountSnapshot(args: {
       orderBy: { occurredAt: 'desc' },
       select: { occurredAt: true },
     }),
+    listCategories(args.userId),
+    listCategoryRules(args.userId),
   ]);
 
   const spentByCategory = new Map<string, number>();
@@ -87,6 +94,11 @@ export async function loadAccountSnapshot(args: {
       spentMinor: spentByCategory.get(b.category) ?? 0,
     })),
     lastTransactionAt: latest ? latest.occurredAt.toISOString() : null,
+    categories: categories.map((c) => ({ slug: c.slug, label: c.label })),
+    // Capped: the snapshot must not grow with the ledger.
+    rules: rules
+      .slice(0, 20)
+      .map((r) => ({ pattern: r.pattern, categorySlug: r.categorySlug })),
   };
 }
 
@@ -104,6 +116,24 @@ export function renderSnapshot(snapshot: AccountSnapshot, timezone: string): str
     `Income: ${money(snapshot.monthIncomeMinor)}`,
     `Net: ${money(snapshot.monthIncomeMinor - snapshot.monthSpentMinor)}`,
   ];
+
+  if (snapshot.categories.length > 0) {
+    lines.push(
+      '',
+      '### Their categories',
+      snapshot.categories.map((c) => c.slug).join(', '),
+      'Use these names. Only create a new category when nothing here fits.',
+    );
+  }
+
+  if (snapshot.rules.length > 0) {
+    lines.push(
+      '',
+      '### Corrections they have already made',
+      ...snapshot.rules.map((r) => `- anything matching "${r.pattern}" → ${r.categorySlug}`),
+      'These are applied automatically when you log. Do not re-litigate them.',
+    );
+  }
 
   if (snapshot.topCategories.length > 0) {
     lines.push('', '### Top categories this month');

@@ -25,6 +25,7 @@ import {
   type LedgerScope,
 } from '@/lib/finance/queries';
 import { parsePeriod, trendShapeFor } from '@/lib/finance/periods';
+import { DEFAULT_CATEGORY_OPTIONS, listCategories } from '@/lib/finance/categories';
 import { listActiveReminders } from '@/lib/finance/reminders';
 import { latestBriefing } from '@/lib/insights/briefing';
 import { readUser } from '@/lib/session';
@@ -62,13 +63,14 @@ export default async function DashboardPage({
   };
   const trend = trendShapeFor(period);
 
-  const [summary, flow, budgets, ledger, reminders, briefing] = await Promise.all([
+  const [summary, flow, budgets, ledger, reminders, briefing, categories] = await Promise.all([
     buildSpendingSummary(scope, period),
     buildFlowSeries(scope, { granularity: trend.granularity, buckets: trend.buckets }),
     listBudgetStatuses(scope),
     listTransactions(scope, { period, limit: 25 }),
     listActiveReminders(scope),
     latestBriefing(user.userId),
+    listCategories(user.userId),
   ]);
 
   const net = summary.netMinor;
@@ -133,9 +135,12 @@ export default async function DashboardPage({
         </div>
 
         <div className="space-y-4">
-          <AddTransaction today={formatDateInZone(new Date(), user.timezone)} />
+          <AddTransaction
+            today={formatDateInZone(new Date(), user.timezone)}
+            categories={categories}
+          />
           <UpcomingReminders reminders={reminders.upcoming} timezone={user.timezone} />
-          <BudgetsPanel budgets={budgets} />
+          <BudgetsPanel budgets={budgets} categories={categories} />
           <AssistantNudge />
         </div>
       </div>
@@ -181,7 +186,9 @@ function Onboarding({ today }: { today: string }) {
       </p>
 
       <div className="mt-6 text-left">
-        <AddTransaction today={today} />
+        {/* No user row yet, so no saved categories — the defaults stand in
+            until their first entry creates the account. */}
+        <AddTransaction today={today} categories={DEFAULT_CATEGORY_OPTIONS} />
       </div>
 
       <Link

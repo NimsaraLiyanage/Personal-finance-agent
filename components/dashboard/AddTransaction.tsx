@@ -4,15 +4,23 @@ import { useRef, useState, useTransition } from 'react';
 
 import { addTransaction } from '@/app/actions/finance';
 import DatePicker from '@/components/ui/DatePicker';
-import { CATEGORIES } from '@/lib/agent/types';
+import type { CategoryOption } from '@/lib/finance/categories';
 
 // Manual entry, for when typing a sentence to the assistant is more ceremony
 // than the task deserves — three fields and done.
 
-export default function AddTransaction({ today }: { today: string }) {
+export default function AddTransaction({
+  today,
+  categories,
+}: {
+  today: string;
+  categories: CategoryOption[];
+}) {
   const form = useRef<HTMLFormElement>(null);
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [date, setDate] = useState(today);
+  // Their own word for something is a first-class category, not an "other".
+  const [customCategory, setCustomCategory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -86,13 +94,48 @@ export default function AddTransaction({ today }: { today: string }) {
         </div>
 
         <Field label="Category">
-          <select name="category" defaultValue="groceries" className={`${inputClass} capitalize`}>
-            {CATEGORIES.map((category) => (
-              <option key={category} value={category} className="capitalize">
-                {category}
-              </option>
-            ))}
-          </select>
+          {customCategory ? (
+            <div className="flex gap-1.5">
+              <input
+                name="category"
+                type="text"
+                required
+                autoFocus
+                maxLength={40}
+                placeholder="kade, bus, wedding fund…"
+                className={inputClass}
+              />
+              <button
+                type="button"
+                onClick={() => setCustomCategory(false)}
+                className="shrink-0 rounded-lg border border-line px-2 text-xs text-ink-faint transition-colors hover:text-ink"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-1.5">
+              <select
+                name="category"
+                defaultValue={categories[0]?.slug ?? 'other'}
+                className={inputClass}
+              >
+                {categories.map((category) => (
+                  <option key={category.slug} value={category.slug}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setCustomCategory(true)}
+                aria-label="Create a new category"
+                className="shrink-0 rounded-lg border border-line px-2.5 text-sm text-ink-faint transition-colors hover:border-accent-dim hover:text-ink"
+              >
+                +
+              </button>
+            </div>
+          )}
         </Field>
 
         <Field label="Merchant or note" optional>

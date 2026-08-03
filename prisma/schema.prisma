@@ -29,13 +29,80 @@ model User {
   timezone  String   @default("UTC")
   createdAt DateTime @default(now())
 
-  transactions Transaction[]
-  budgets      Budget[]
-  threads      ChatThread[]
-  reminders    Reminder[]
-  insights     Insight[]
+  transactions   Transaction[]
+  budgets        Budget[]
+  threads        ChatThread[]
+  reminders      Reminder[]
+  insights       Insight[]
+  categories     Category[]
+  categoryRules  CategoryRule[]
 
   @@map("users")
+}
+
+// ── Categories ──────────────────────────────────────────────────────────────
+// Categories belong to the person, not to the codebase.
+//
+// The single most common complaint about expense trackers is that the
+// categories never match how the user actually thinks about money — a fixed
+// enum can't hold "kade", "bus eka", or "amma". So the thirteen defaults are
+// seeded per user and are theirs to rename, retire, or add to.
+//
+// `Transaction.category` and `Budget.category` still store the slug as a plain
+// string rather than a foreign key. That is deliberate: a category can be
+// archived without orphaning years of history, and the ledger stays readable
+// even if this table is dropped.
+
+model Category {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Stable key written onto transactions. Never changes once created.
+  slug  String
+  /// What the person sees. Renaming touches only this.
+  label String
+
+  /// Seeded by us vs. created by them. Only affects what we offer to remove.
+  builtIn   Boolean   @default(false)
+  sortOrder Int       @default(0)
+  /// Retired rather than deleted, so old transactions keep their name.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, slug])
+  @@index([userId, archivedAt])
+  @@map("categories")
+}
+
+/// A correction the person made, remembered.
+///
+/// "No, Uber is transport, not other" has to stick — an assistant that needs
+/// the same fix every week is worse than one that never guessed. Rules are
+/// applied server-side when a transaction is written, so they beat whatever
+/// the model decided.
+model CategoryRule {
+  id     String @id @default(cuid())
+  userId String
+
+  /// Lowercased merchant or phrase to match against.
+  pattern      String
+  categorySlug String
+
+  /// `correction` when learned from the user fixing something, `manual` when set deliberately.
+  source String @default("correction")
+  /// How often it has fired — cheap signal for which rules are earning their keep.
+  hits Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pattern])
+  @@map("category_rules")
 }
 
 // ── Ledger ──────────────────────────────────────────────────────────────────

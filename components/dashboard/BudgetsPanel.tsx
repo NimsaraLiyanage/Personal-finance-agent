@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 
 import { removeBudget, saveBudget } from '@/app/actions/finance';
 import type { BudgetStatus } from '@/lib/agent/types';
-import { CATEGORIES } from '@/lib/agent/types';
+import type { CategoryOption } from '@/lib/finance/categories';
 
 // Budgets as meters.
 //
@@ -12,7 +12,13 @@ import { CATEGORIES } from '@/lib/agent/types';
 // fine on the 25th and alarming on the 5th, and a bar without a "where you
 // should be by now" tick can't tell those apart.
 
-export default function BudgetsPanel({ budgets }: { budgets: BudgetStatus[] }) {
+export default function BudgetsPanel({
+  budgets,
+  categories,
+}: {
+  budgets: BudgetStatus[];
+  categories: CategoryOption[];
+}) {
   const form = useRef<HTMLFormElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -59,10 +65,10 @@ export default function BudgetsPanel({ budgets }: { budgets: BudgetStatus[] }) {
       >
         <label className="min-w-0 flex-1">
           <span className="mb-1 block text-[11px] text-ink-faint">Category</span>
-          <select name="category" defaultValue="dining" className={`${inputClass} capitalize`}>
-            {CATEGORIES.map((category) => (
-              <option key={category} value={category} className="capitalize">
-                {category}
+          <select name="category" defaultValue={categories[0]?.slug ?? 'other'} className={inputClass}>
+            {categories.map((category) => (
+              <option key={category.slug} value={category.slug}>
+                {category.label}
               </option>
             ))}
           </select>

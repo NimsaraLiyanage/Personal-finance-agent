@@ -29,7 +29,7 @@ import {
   type LedgerScope,
 } from '../finance/queries';
 import { formatMoney, toMinor } from '../money';
-import { CATEGORIES } from './types';
+import { rememberCategoryRule, resolveCategory } from '../finance/categories';
 import type {
   BudgetStatus,
   PendingClientAction,
@@ -40,7 +40,15 @@ import { formatDateInZone, nowInZone, parseOccurredAt, type PeriodKey } from './
 
 // ── Shared schema fragments ─────────────────────────────────────────────────
 
-const CategoryEnum = z.enum(CATEGORIES);
+// Free text, not an enum. Categories belong to the user (lib/finance/categories.ts),
+// so the model is told the current set in the account snapshot and whatever it
+// says is normalised server-side — which is also where a remembered correction
+// gets to overrule it.
+const CategoryEnum = z
+  .string()
+  .describe(
+    'A category name. Prefer one listed in the account snapshot; only invent a new one when none of theirs fit.',
+  );
 
 const PeriodEnum = z
   .enum([
@@ -89,6 +97,13 @@ export function buildTools(runtime: ToolRuntime) {
           return 'Amount must be greater than zero. Ask the user to restate it.';
         }
 
+        // A correction the user made earlier beats the model's guess. This is
+        // the whole point of remembering them: they should not have to say
+        // "that's transport, not other" about the same merchant twice.
+        const category = await resolveCategory(runtime.userId, input.category, {
+          merchant: input.merchant,
+        });
+
         const created = await prisma.transaction.create({
           data: {
             userId: runtime.userId,
@@ -96,7 +111,7 @@ export function buildTools(runtime: ToolRuntime) {
             amountMinor,
             currency: runtime.currency,
             merchant: input.merchant?.trim() || null,
-            category: input.category,
+            category,
             note: input.note?.trim() || null,
             occurredAt: at,
             source: input.source ?? 'chat',
@@ -111,11 +126,11 @@ export function buildTools(runtime: ToolRuntime) {
         let budgetTouched: BudgetStatus | undefined;
         if (input.kind === 'expense') {
           const budget = await prisma.budget.findUnique({
-            where: { userId_category: { userId: runtime.userId, category: input.category } },
+            where: { userId_category: { userId: runtime.userId, category } },
             select: { limitMinor: true },
           });
           if (budget) {
-            budgetTouched = await buildBudgetStatus(scope(), input.category, budget.limitMinor);
+            budgetTouched = await buildBudgetStatus(scope(), category, budget.limitMinor);
           }
         }
 
@@ -124,10 +139,10 @@ export function buildTools(runtime: ToolRuntime) {
         const label = [view.merchant, view.category].filter(Boolean).join(', ');
         const base = `Logged ${input.kind}: ${view.formatted} (${label}) on ${formatDateInZone(at, runtime.timezone)}.`;
         if (budgetTouched?.state === 'over') {
-          return `${base} This puts ${input.category} at ${budgetTouched.formattedSpent} against a ${budgetTouched.formattedLimit} budget — over by ${money(Math.abs(budgetTouched.remainingMinor))}.`;
+          return `${base} This puts ${category} at ${budgetTouched.formattedSpent} against a ${budgetTouched.formattedLimit} budget — over by ${money(Math.abs(budgetTouched.remainingMinor))}.`;
         }
         if (budgetTouched?.state === 'warning') {
-          return `${base} ${input.category} is now at ${Math.round(budgetTouched.usedRatio * 100)}% of its ${budgetTouched.formattedLimit} budget.`;
+          return `${base} ${category} is now at ${Math.round(budgetTouched.usedRatio * 100)}% of its ${budgetTouched.formattedLimit} budget.`;
         }
         return base;
       } catch (err) {
@@ -200,9 +215,13 @@ export function buildTools(runtime: ToolRuntime) {
 
   const listTransactions = tool(
     async (input) => {
+      const filterCategory = input.category
+        ? await resolveCategory(runtime.userId, input.category, { create: false })
+        : undefined;
+
       const { transactions, periodLabel } = await queryTransactions(scope(), {
         period: (input.period ?? 'this_month') as PeriodKey,
-        category: input.category,
+        category: filterCategory,
         merchantContains: input.merchant_contains,
         limit: Math.min(input.limit ?? 20, 50),
       });
@@ -243,11 +262,12 @@ export function buildTools(runtime: ToolRuntime) {
       const limitMinor = toMinor(input.monthly_limit, runtime.currency);
       if (limitMinor <= 0) return 'A budget must be greater than zero.';
 
+      const category = await resolveCategory(runtime.userId, input.category);
       const saved = await prisma.budget.upsert({
-        where: { userId_category: { userId: runtime.userId, category: input.category } },
+        where: { userId_category: { userId: runtime.userId, category } },
         create: {
           userId: runtime.userId,
-          category: input.category,
+          category,
           limitMinor,
           currency: runtime.currency,
         },
@@ -257,7 +277,7 @@ export function buildTools(runtime: ToolRuntime) {
       const status = await buildBudgetStatus(scope(), saved.category, saved.limitMinor);
       push(runtime, { type: 'budget_saved', budget: status });
 
-      return `Budget set: ${money(limitMinor)} per month for ${input.category}. Already spent ${status.formattedSpent} this month.`;
+      return `Budget set: ${money(limitMinor)} per month for ${category}. Already spent ${status.formattedSpent} this month.`;
     },
     {
       name: 'set_budget',
@@ -277,7 +297,10 @@ export function buildTools(runtime: ToolRuntime) {
 
   const getBudgetStatus = tool(
     async (input) => {
-      const statuses = await listBudgetStatuses(scope(), input.category);
+      const filterCategory = input.category
+        ? await resolveCategory(runtime.userId, input.category, { create: false })
+        : undefined;
+      const statuses = await listBudgetStatuses(scope(), filterCategory);
 
       if (statuses.length === 0) {
         push(runtime, { type: 'budget_status', budgets: [] });
@@ -313,10 +336,13 @@ export function buildTools(runtime: ToolRuntime) {
   const getSpendingTrend = tool(
     async (input) => {
       const granularity = input.granularity ?? 'month';
+      const filterCategory = input.category
+        ? await resolveCategory(runtime.userId, input.category, { create: false })
+        : undefined;
       const series = await buildFlowSeries(scope(), {
         granularity,
         buckets: input.buckets ?? 6,
-        category: input.category,
+        category: filterCategory,
       });
 
       // The card plots spend only; the flow series carries income too, which
@@ -385,6 +411,77 @@ export function buildTools(runtime: ToolRuntime) {
           .string()
           .optional()
           .describe('Omit to delete the most recently created transaction.'),
+      }),
+    },
+  );
+
+  // ---- recategorize_transaction -------------------------------------------
+
+  const recategorizeTransaction = tool(
+    async (input) => {
+      const target = input.transaction_id
+        ? await prisma.transaction.findFirst({
+            where: { id: input.transaction_id, userId: runtime.userId },
+          })
+        : await prisma.transaction.findFirst({
+            where: { userId: runtime.userId },
+            orderBy: { createdAt: 'desc' },
+          });
+
+      if (!target) return 'There is no matching transaction to recategorise.';
+
+      // create: true — "call it groceries" about something with no matching
+      // category is a request to have that category, not an error.
+      const category = await resolveCategory(runtime.userId, input.category, { create: true });
+
+      const updated = await prisma.transaction.update({
+        where: { id: target.id },
+        data: { category },
+      });
+
+      // The correction is the valuable part. Remembering it is what stops the
+      // same fix being needed every week — see CategoryRule in the schema.
+      let remembered: string | null = null;
+      const pattern = input.remember_for?.trim() || target.merchant?.trim() || null;
+      if (input.remember !== false && pattern) {
+        const ok = await rememberCategoryRule(runtime.userId, pattern, category);
+        if (ok) remembered = pattern.toLowerCase();
+      }
+
+      push(runtime, { type: 'transaction_logged', transaction: toTransactionView(updated) });
+
+      const base = `Moved ${formatMoney(updated.amountMinor, updated.currency)} from ${target.category} to ${category}.`;
+      return remembered
+        ? `${base} From now on anything matching "${remembered}" goes to ${category} automatically — tell the user you'll remember it, in a short clause.`
+        : base;
+    },
+    {
+      name: 'recategorize_transaction',
+      description: [
+        'Fix the category on a transaction, and remember the correction.',
+        'Use whenever the user disagrees with a category — "no, that\'s transport",',
+        '"Uber is not shopping", "put the kade one under groceries".',
+        'With no id it fixes the most recently created transaction, which is almost',
+        'always what "no, that one" means.',
+        'This is how the assistant learns their vocabulary: prefer it over silently',
+        'guessing better next time.',
+      ].join(' '),
+      schema: z.object({
+        category: CategoryEnum.describe('What it should have been.'),
+        transaction_id: z
+          .string()
+          .optional()
+          .describe('Omit to fix the most recently created transaction.'),
+        remember: z
+          .boolean()
+          .optional()
+          .describe('Default true. Set false only if the user says this time is an exception.'),
+        remember_for: z
+          .string()
+          .optional()
+          .describe(
+            'The word or merchant the rule should key on, if different from the transaction\'s merchant — e.g. "bus eka", "kade".',
+          ),
       }),
     },
   );
@@ -500,6 +597,7 @@ export function buildTools(runtime: ToolRuntime) {
     getBudgetStatus,
     getSpendingTrend,
     deleteTransaction,
+    recategorizeTransaction,
     scheduleReminder,
     navigateTo,
     endSession,
