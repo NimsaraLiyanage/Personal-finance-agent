@@ -41,15 +41,15 @@ export default function ActionCard({ action }: { action: PendingClientAction }) 
         <Shell title={s.periodLabel}>
           <div className="flex items-baseline gap-4">
             <div>
-              <div className="text-2xl font-semibold tnum">{s.formattedSpent}</div>
+              <div className="text-2xl font-semibold tracking-tight tnum">{s.formattedSpent}</div>
               <div className="text-xs text-ink-faint">
                 spent · {s.transactionCount} transactions
               </div>
             </div>
             {s.changePct !== null && (
               <span
-                className={`rounded-full px-2 py-0.5 text-xs tnum ${
-                  s.changePct > 0 ? 'bg-danger/15 text-danger' : 'bg-accent/15 text-accent'
+                className={`rounded-full px-2 py-0.5 text-xs font-medium tnum ${
+                  s.changePct > 0 ? 'bg-danger/10 text-danger' : 'bg-accent-soft text-accent'
                 }`}
               >
                 {s.changePct > 0 ? '▲' : '▼'} {Math.abs(Math.round(s.changePct * 100))}%
@@ -62,7 +62,7 @@ export default function ActionCard({ action }: { action: PendingClientAction }) 
               {s.byCategory.slice(0, 6).map((c) => (
                 <div key={c.category} className="flex items-center gap-3 text-sm">
                   <span className="w-24 shrink-0 truncate text-ink-dim">{c.category}</span>
-                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
                     <span
                       className="block h-full rounded-full bg-accent"
                       style={{ width: `${Math.max(2, c.share * 100)}%` }}
@@ -191,7 +191,7 @@ function TransactionRow({ t }: { t: import('@/lib/agent/types').TransactionView 
       <span
         aria-hidden
         className={`grid size-8 shrink-0 place-items-center rounded-full text-xs ${
-          income ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-ink-dim'
+          income ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-dim'
         }`}
       >
         {income ? '↓' : '↑'}
@@ -223,7 +223,7 @@ function BudgetBar({ budget }: { budget: BudgetStatus }) {
           {budget.formattedSpent} / {budget.formattedLimit}
         </span>
       </div>
-      <div className="relative h-2 overflow-hidden rounded-full bg-surface-2">
+      <div className="relative h-2 overflow-hidden rounded-full bg-line">
         <span
           className={`block h-full rounded-full ${colour} transition-[width] duration-500`}
           style={{ width: `${Math.max(2, pct)}%` }}
@@ -231,7 +231,7 @@ function BudgetBar({ budget }: { budget: BudgetStatus }) {
         {/* Where spending *should* be by this point in the month. A bar at 60%
             on the 5th is a very different story than on the 28th. */}
         <span
-          className="absolute inset-y-0 w-px bg-ink/40"
+          className="absolute inset-y-0 w-px bg-ink/45"
           style={{ left: `${Math.round(budget.monthProgress * 100)}%` }}
           title="Expected pace for today"
         />

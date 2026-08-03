@@ -1,26 +1,35 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-canvas: oklch(0.16 0.012 260);
-  --color-surface: oklch(0.21 0.014 260);
-  --color-surface-2: oklch(0.25 0.016 260);
-  --color-line: oklch(0.32 0.018 260);
-  --color-ink: oklch(0.96 0.004 260);
-  --color-ink-dim: oklch(0.72 0.014 260);
-  --color-ink-faint: oklch(0.56 0.014 260);
+  /* Light palette. Names stay semantic (canvas → ink) so components never
+     spell out a colour — the whole scheme swaps from this block alone. */
+  --color-canvas: oklch(0.985 0.004 250);
+  --color-surface: oklch(1 0 0);
+  --color-surface-2: oklch(0.965 0.006 250);
+  --color-line: oklch(0.915 0.008 250);
+  --color-line-strong: oklch(0.86 0.01 250);
+  --color-ink: oklch(0.26 0.02 260);
+  --color-ink-dim: oklch(0.48 0.016 260);
+  --color-ink-faint: oklch(0.63 0.014 260);
 
-  --color-accent: oklch(0.78 0.15 168);
-  --color-accent-dim: oklch(0.5 0.09 168);
-  --color-warn: oklch(0.8 0.15 78);
-  --color-danger: oklch(0.68 0.19 22);
+  /* Accent is dark enough to carry white text as a button fill and to pass
+     as body-size text on canvas. */
+  --color-accent: oklch(0.55 0.115 168);
+  --color-accent-soft: oklch(0.93 0.04 168);
+  --color-accent-dim: oklch(0.78 0.09 168);
+  --color-warn: oklch(0.7 0.14 72);
+  --color-danger: oklch(0.56 0.19 25);
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --shadow-card: 0 1px 2px oklch(0.26 0.02 260 / 0.05), 0 8px 24px -12px oklch(0.26 0.02 260 / 0.12);
+  --shadow-raised: 0 1px 2px oklch(0.26 0.02 260 / 0.06), 0 2px 8px -4px oklch(0.26 0.02 260 / 0.1);
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {
@@ -28,6 +37,7 @@
     color: var(--color-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   /* Tabular figures everywhere money appears — otherwise columns of numbers
@@ -35,13 +45,30 @@
   .tnum {
     font-variant-numeric: tabular-nums;
   }
+
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
 }
 
 @layer utilities {
   .card {
     background: var(--color-surface);
     border: 1px solid var(--color-line);
-    border-radius: 0.875rem;
+    border-radius: 1rem;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Scrollbars in a light UI read as heavy chrome unless toned down. */
+  .scroll-quiet {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
   }
 
   @keyframes rise {
@@ -61,7 +88,7 @@
 
   @keyframes pulse-ring {
     0% {
-      box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-accent) 55%, transparent);
+      box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-accent) 40%, transparent);
     }
     70% {
       box-shadow: 0 0 0 14px transparent;

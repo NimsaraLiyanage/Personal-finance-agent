@@ -114,7 +114,7 @@ export default function VoiceControl({
         <div
           role="radiogroup"
           aria-label="Voice mode"
-          className="flex rounded-full border border-line p-0.5 text-[11px]"
+          className="flex rounded-full border border-line bg-surface-2 p-0.5 text-[11px]"
         >
           {(['pipeline', 'realtime'] as const).map((m) => (
             <button
@@ -123,8 +123,10 @@ export default function VoiceControl({
               role="radio"
               aria-checked={mode === m}
               onClick={() => setMode(m)}
-              className={`rounded-full px-2.5 py-1 transition-colors ${
-                mode === m ? 'bg-surface-2 text-ink' : 'text-ink-faint hover:text-ink-dim'
+              className={`rounded-full px-2.5 py-1 font-medium transition-colors ${
+                mode === m
+                  ? 'bg-surface text-ink shadow-raised'
+                  : 'text-ink-faint hover:text-ink-dim'
               }`}
             >
               {m === 'pipeline' ? 'Pipeline' : 'Realtime'}
@@ -138,12 +140,12 @@ export default function VoiceControl({
         onClick={() => (active ? stop() : void start())}
         title={error ?? undefined}
         aria-label={active ? 'Stop voice session' : 'Start voice session'}
-        className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
+        className={`flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-medium shadow-raised transition-colors ${
           active
-            ? 'bg-accent text-canvas'
+            ? 'bg-accent text-white'
             : state === 'error'
-              ? 'border border-danger/50 text-danger'
-              : 'border border-line text-ink-dim hover:border-accent-dim hover:text-ink'
+              ? 'border border-danger/40 bg-danger/8 text-danger'
+              : 'border border-line bg-surface text-ink-dim hover:border-accent-dim hover:text-ink'
         } ${state === 'listening' ? 'animate-pulse-ring' : ''}`}
       >
         <span aria-hidden>{active ? '■' : '🎙'}</span>

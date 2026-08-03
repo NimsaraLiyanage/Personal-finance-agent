@@ -167,10 +167,18 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between py-4">
-        <div>
-          <h1 className="text-sm font-semibold tracking-tight">Ledger</h1>
-          <p className="text-xs text-ink-faint">Tell it what you spent.</p>
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-canvas/85 py-3.5 backdrop-blur-md">
+        <div className="flex items-center gap-2.5">
+          <span
+            aria-hidden
+            className="grid size-8 shrink-0 place-items-center rounded-xl bg-accent text-sm font-semibold text-white shadow-raised"
+          >
+            L
+          </span>
+          <div>
+            <h1 className="text-sm font-semibold tracking-tight">Ledger</h1>
+            <p className="text-xs text-ink-faint">Tell it what you spent.</p>
+          </div>
         </div>
         <VoiceControl
           defaultMode={defaultVoiceMode}
@@ -182,19 +190,22 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
         />
       </header>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pb-4">
+      <div ref={scrollRef} className="scroll-quiet flex-1 space-y-4 overflow-y-auto py-6">
         {turns.length === 0 && (
-          <div className="mt-16 text-center">
-            <p className="text-sm text-ink-dim">
+          <div className="mt-12 text-center sm:mt-20">
+            <h2 className="text-xl font-semibold tracking-tight text-ink sm:text-2xl">
+              What did you spend today?
+            </h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-ink-dim">
               Log spending in plain language, or ask about your own numbers.
             </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <div className="mx-auto mt-6 flex max-w-lg flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => void submit(s)}
-                  className="rounded-full border border-line px-3 py-1.5 text-xs text-ink-dim transition-colors hover:border-accent-dim hover:text-ink"
+                  className="rounded-full border border-line bg-surface px-3.5 py-2 text-xs text-ink-dim shadow-raised transition-all hover:-translate-y-px hover:border-accent-dim hover:text-ink"
                 >
                   {s}
                 </button>
@@ -210,8 +221,8 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
                 <div
                   className={
                     turn.role === 'user'
-                      ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-surface-2 px-3.5 py-2 text-sm'
-                      : 'max-w-[90%] text-sm leading-relaxed text-ink'
+                      ? 'max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-sm leading-relaxed text-white shadow-raised'
+                      : 'max-w-[90%] whitespace-pre-wrap text-sm leading-relaxed text-ink'
                   }
                 >
                   {turn.text}
@@ -233,7 +244,7 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
         ))}
 
         {error && (
-          <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <div className="rounded-xl border border-danger/25 bg-danger/8 px-3.5 py-2.5 text-sm text-danger">
             {error}
           </div>
         )}
@@ -244,22 +255,30 @@ export default function Chat({ defaultVoiceMode }: { defaultVoiceMode: VoiceMode
           e.preventDefault();
           void submit(input);
         }}
-        className="sticky bottom-0 flex gap-2 bg-canvas pb-5 pt-2"
+        className="sticky bottom-0 bg-canvas pb-5"
       >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Coffee 4.50…"
-          aria-label="Message"
-          className="flex-1 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-ink-faint focus:border-accent-dim"
+        {/* Fades the transcript out under the composer instead of letting it
+            collide with the input's top edge. */}
+        <div
+          aria-hidden
+          className="pointer-events-none -mt-6 h-6 bg-gradient-to-b from-transparent to-canvas"
         />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="rounded-xl bg-accent px-4 text-sm font-medium text-canvas transition-opacity disabled:opacity-30"
-        >
-          {busy ? '…' : 'Send'}
-        </button>
+        <div className="flex items-center gap-2 rounded-2xl border border-line bg-surface p-1.5 shadow-card transition-colors focus-within:border-accent-dim">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Coffee 4.50…"
+            aria-label="Message"
+            className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus-visible:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={busy || !input.trim()}
+            className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition-all hover:brightness-110 disabled:bg-line-strong disabled:text-ink-faint"
+          >
+            {busy ? '…' : 'Send'}
+          </button>
+        </div>
       </form>
     </div>
   );
