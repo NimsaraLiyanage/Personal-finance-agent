@@ -67,6 +67,24 @@ export const auth = betterAuth({
 
   emailAndPassword: { enabled: false },
 
+  databaseHooks: {
+    user: {
+      create: {
+        // Better Auth writes only the fields it owns, so without this every
+        // new account falls back to the Prisma column defaults — USD and UTC —
+        // regardless of where the deployment actually is. A Sri Lankan user
+        // signing in and finding their ledger in dollars is the visible symptom.
+        before: async (user) => ({
+          data: {
+            ...user,
+            currency: process.env.DEFAULT_CURRENCY?.trim().toUpperCase() || 'USD',
+            timezone: process.env.DEFAULT_TIMEZONE?.trim() || 'UTC',
+          },
+        }),
+      },
+    },
+  },
+
   socialProviders: GOOGLE_ENABLED
     ? { google: { clientId: googleId!, clientSecret: googleSecret! } }
     : {},

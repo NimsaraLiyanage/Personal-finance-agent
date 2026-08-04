@@ -105,12 +105,43 @@ async function load(userId: string): Promise<SessionUser | null> {
  */
 export async function readUser(): Promise<SessionUser | null> {
   const sessionUserId = await currentSessionUserId();
-  if (sessionUserId) return load(sessionUserId);
+  if (sessionUserId) {
+    // Signing in is not a write to the ledger, so the bridge below cannot wait
+    // for one. Someone whose only session was the old cookie could sign in with
+    // Google, land on a brand-new empty account, and see nothing — the rows
+    // still there, attached to an id nothing points at any more.
+    await bridgeLegacyLedger(sessionUserId);
+    return load(sessionUserId);
+  }
 
-  // A legacy visitor still sees their own ledger while reading. The bridge
-  // itself waits for a write.
+  // No account yet: they still see their own ledger while reading. The bridge
+  // waits for a session to attach it to.
   const legacy = await legacyUserId();
   return legacy ? load(legacy) : null;
+}
+
+/**
+ * Move a pre-Better-Auth ledger onto the account that now owns it.
+ *
+ * Runs at most once per person: the source row is deleted afterwards, so the
+ * next call finds no legacy user and does nothing. Safe to call on a read path
+ * for that reason — and it has to be on a read path, because signing in is the
+ * moment it matters and signing in writes nothing.
+ */
+async function bridgeLegacyLedger(targetUserId: string): Promise<void> {
+  const legacy = await legacyUserId();
+  if (!legacy || legacy === targetUserId) return;
+
+  try {
+    const report = await mergeLedger(legacy, targetUserId);
+    await prisma.user.delete({ where: { id: legacy } });
+    clearLegacyCookie(await cookies());
+    console.info('[auth] bridged legacy ledger', legacy, '→', targetUserId, report);
+  } catch (err) {
+    // Never break a page render over this. It will be retried next request,
+    // and the ledger is still whole on the old row until it succeeds.
+    console.error('[auth] legacy bridge failed', err);
+  }
 }
 
 /**
@@ -126,6 +157,7 @@ export async function resolveUser(): Promise<SessionUser & { setCookie: null }> 
     .then((s) => s?.user?.id ?? null);
 
   if (sessionUserId) {
+    await bridgeLegacyLedger(sessionUserId);
     const existing = await load(sessionUserId);
     if (existing) return { ...existing, setCookie: null };
   }
@@ -136,14 +168,7 @@ export async function resolveUser(): Promise<SessionUser & { setCookie: null }> 
   const newUserId = created?.user?.id;
   if (!newUserId) throw new Error('Could not start a session');
 
-  // The bridge: an older ledger, moved onto the new account exactly once.
-  const legacy = await legacyUserId();
-  if (legacy && legacy !== newUserId) {
-    const report = await mergeLedger(legacy, newUserId);
-    await prisma.user.delete({ where: { id: legacy } }).catch(() => {});
-    clearLegacyCookie(await cookies());
-    console.info('[auth] bridged legacy cookie ledger', legacy, '→', newUserId, report);
-  }
+  await bridgeLegacyLedger(newUserId);
 
   const user = await load(newUserId);
   if (!user) throw new Error('Could not start a session');
