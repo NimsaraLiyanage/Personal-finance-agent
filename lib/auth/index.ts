@@ -70,17 +70,33 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        // Better Auth writes only the fields it owns, so without this every
-        // new account falls back to the Prisma column defaults — USD and UTC —
-        // regardless of where the deployment actually is. A Sri Lankan user
-        // signing in and finding their ledger in dollars is the visible symptom.
-        before: async (user) => ({
-          data: {
-            ...user,
-            currency: process.env.DEFAULT_CURRENCY?.trim().toUpperCase() || 'USD',
-            timezone: process.env.DEFAULT_TIMEZONE?.trim() || 'UTC',
-          },
-        }),
+        // Set AFTER creation, with Prisma, on purpose.
+        //
+        // Better Auth writes only the columns it knows about, and filters
+        // anything else out of the payload — so returning `currency` from the
+        // `before` hook silently does nothing and every new account falls back
+        // to the Prisma column defaults, USD and UTC, wherever the deployment
+        // actually is. A Sri Lankan user signing in and finding their ledger in
+        // dollars is the visible symptom. Writing the row ourselves sidesteps
+        // the filter entirely, at the cost of one UPDATE per account ever
+        // created.
+        after: async (user) => {
+          const currency = process.env.DEFAULT_CURRENCY?.trim().toUpperCase();
+          const timezone = process.env.DEFAULT_TIMEZONE?.trim();
+          if (!currency && !timezone) return;
+
+          await prisma.user
+            .update({
+              where: { id: user.id },
+              data: {
+                ...(currency ? { currency } : {}),
+                ...(timezone ? { timezone } : {}),
+              },
+            })
+            // A failed default must never break a sign-in; they land on USD and
+            // can change it, which is recoverable. A 500 on sign-in is not.
+            .catch((err) => console.error('[auth] could not apply defaults', err));
+        },
       },
     },
   },

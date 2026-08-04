@@ -17,6 +17,15 @@ const SUBJECTS: Record<CodeType, string> = {
   'change-email': 'Confirm your new Tally email',
 };
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+/** Development only: the code goes where the developer can see it. */
+function logCode(email: string, code: string, type: CodeType, why?: string) {
+  console.info(
+    `\n[auth] ${type} code for ${email}: ${code}${why ? `\n[auth] (email not sent: ${why})` : ''}\n`,
+  );
+}
+
 export async function sendSignInCode(
   email: string,
   code: string,
@@ -25,10 +34,10 @@ export async function sendSignInCode(
   const apiKey = process.env.RESEND_API_KEY?.trim();
 
   if (!apiKey) {
-    if (process.env.NODE_ENV === 'production') {
+    if (isProduction) {
       throw new Error('RESEND_API_KEY is not set — cannot send sign-in codes');
     }
-    console.info(`\n[auth] ${type} code for ${email}: ${code}\n`);
+    logCode(email, code, type);
     return;
   }
 
@@ -50,8 +59,31 @@ export async function sendSignInCode(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
+    const reason = extractReason(detail) ?? `HTTP ${response.status}`;
+
+    // In development the send is allowed to fail and the flow carries on with
+    // the code in the terminal. The most common failure is not a bug at all:
+    // Resend's sandbox sender only delivers to the account owner's own address,
+    // so testing a second account looks like a broken app when it is a provider
+    // rule. Blocking sign-in on that would make the feature untestable.
+    if (!isProduction) {
+      console.error('[auth] code send failed:', response.status, detail.slice(0, 300));
+      logCode(email, code, type, reason);
+      return;
+    }
+
     console.error('[auth] code send failed:', response.status, detail.slice(0, 300));
     // Surfaced to the caller: "check your email" is a lie if nothing was sent.
     throw new Error('Could not send the code.');
+  }
+}
+
+/** Pull the human sentence out of a provider error body, if there is one. */
+function extractReason(detail: string): string | null {
+  try {
+    const parsed = JSON.parse(detail) as { message?: string };
+    return parsed.message?.slice(0, 200) ?? null;
+  } catch {
+    return detail ? detail.slice(0, 200) : null;
   }
 }
