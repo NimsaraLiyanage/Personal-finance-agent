@@ -187,6 +187,10 @@ These are missing today and each one blocks something above:
 4. **Mobile: SMS/notification listener** feeding the same agent, plus a quick-add
    widget, offline-first sync, and push notifications carrying the briefing.
 
+   *Push already ships on the web.* The PWA is installable and the weekly
+   briefing arrives as a notification with the app closed — so the retention
+   loop can be tested before a line of native code exists.
+
    *Partly done already.* The understanding half shipped on web first, at
    `/import`: paste the messages, review, save. `lib/import/sms.ts` is
    dependency-free — no database, no `next/*`, no `node:crypto` — so the phone

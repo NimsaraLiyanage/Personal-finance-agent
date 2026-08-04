@@ -6,12 +6,21 @@ export const metadata: Metadata = {
   title: 'Tally — personal finance agent',
   description:
     'A conversational finance assistant: log spending by text or voice, and get answers from your own ledger.',
+  // Installable: app/manifest.ts describes it, these two make iOS treat it as
+  // an app rather than a bookmark (Safari still ignores most of the manifest).
+  appleWebApp: { capable: true, title: 'Tally', statusBarStyle: 'default' },
+  icons: { apple: '/icons/apple-touch-icon.png' },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#f2f4f7',
+  // The brand green, not the canvas: this paints the Android status bar and
+  // the iOS notch area once the app is installed.
+  themeColor: '#1f8a6d',
   width: 'device-width',
   initialScale: 1,
+  // Standalone apps should not rubber-band like a web page, but pinch-zoom
+  // stays available — disabling it locks out anyone who needs to enlarge text.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

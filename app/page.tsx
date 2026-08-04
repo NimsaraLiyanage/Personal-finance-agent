@@ -14,6 +14,7 @@ import BudgetsPanel from '@/components/dashboard/BudgetsPanel';
 import CategoryBreakdown from '@/components/dashboard/CategoryBreakdown';
 import NetFlowChart from '@/components/dashboard/NetFlowChart';
 import PeriodTabs from '@/components/dashboard/PeriodTabs';
+import NotificationToggle from '@/components/pwa/NotificationToggle';
 import RecurringPanel from '@/components/dashboard/RecurringPanel';
 import { DueReminders, UpcomingReminders } from '@/components/dashboard/Reminders';
 import StatTile from '@/components/dashboard/StatTile';
@@ -196,6 +197,9 @@ export default async function DashboardPage({
           />
           <UpcomingReminders reminders={reminders.upcoming} timezone={user.timezone} />
           <BudgetsPanel budgets={budgets} categories={categories} scoped={Boolean(activeAccount)} />
+          {/* Renders nothing unless push is configured, supported and not
+              already refused — an offer nobody can accept is just clutter. */}
+          <NotificationToggle />
           <AssistantNudge />
         </div>
       </div>

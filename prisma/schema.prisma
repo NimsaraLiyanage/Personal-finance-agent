@@ -62,6 +62,7 @@ model User {
   categoryRules  CategoryRule[]
   accounts       Account[]
   recurring      Recurring[]
+  pushSubs       PushSubscription[]
 
   @@map("users")
 }
@@ -487,6 +488,39 @@ model Recurring {
   @@unique([userId, matchKey, cadence])
   @@index([userId, status, nextDueAt])
   @@map("recurring")
+}
+
+// ── Push ────────────────────────────────────────────────────────────────────
+// One row per browser or installed app that agreed to be notified.
+//
+// A person has several: a phone, a laptop, the installed PWA on the same phone
+// counts separately from the tab. So this is a list, not a column on `User`.
+//
+// Endpoints go stale constantly — reinstalled apps, cleared site data, expired
+// tokens. The push service says so with a 404 or 410, and the row is deleted on
+// the spot. Anything else and the table quietly fills with addresses that can
+// never receive anything.
+
+model PushSubscription {
+  id     String @id @default(cuid())
+  userId String
+
+  /// The push service URL. Unique because it IS the device's address.
+  endpoint String @unique
+  /// Keys the payload is encrypted with. Useless without the endpoint.
+  p256dh   String
+  auth     String
+
+  /// For telling "your phone" from "your laptop" in a settings list.
+  userAgent String?
+
+  createdAt  DateTime  @default(now())
+  lastSentAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 // ── Reminders ───────────────────────────────────────────────────────────────

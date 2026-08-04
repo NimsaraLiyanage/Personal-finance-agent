@@ -12,6 +12,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { generateWeeklyBriefing } from '@/lib/insights/briefing';
 import { refreshRecurring } from '@/lib/finance/recurring';
+import { sendToUser } from '@/lib/push';
 import type { LedgerScope } from '@/lib/finance/queries';
 
 export const runtime = 'nodejs';
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
 
   const results: Array<{ userId: string; status: 'written' | 'skipped' | 'failed' }> = [];
   let scanned = 0;
+  let notified = 0;
 
   for (const user of active) {
     const scope: LedgerScope = {
@@ -69,6 +71,23 @@ export async function POST(request: NextRequest) {
 
       const briefing = await generateWeeklyBriefing(scope);
       results.push({ userId: user.id, status: briefing ? 'written' : 'skipped' });
+
+      // The nudge is what makes the briefing proactive — a card on a page they
+      // open once a fortnight is just a page. The headline only, never a
+      // figure: this renders on a lock screen in front of whoever is nearby.
+      if (briefing) {
+        try {
+          const result = await sendToUser(user.id, {
+            title: 'Your week in money',
+            body: briefing.headline,
+            url: '/',
+            tag: 'tally-briefing',
+          });
+          notified += result.sent;
+        } catch (err) {
+          console.error('[insights] push failed', user.id, (err as Error).message);
+        }
+      }
     } catch (err) {
       // One user's failure must not abort the run for everyone after them.
       console.error('[insights] briefing failed', user.id, (err as Error).message);
@@ -79,6 +98,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     considered: active.length,
     scanned,
+    notified,
     written: results.filter((r) => r.status === 'written').length,
     skipped: results.filter((r) => r.status === 'skipped').length,
     failed: results.filter((r) => r.status === 'failed').length,
