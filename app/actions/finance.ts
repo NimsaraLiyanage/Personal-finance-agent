@@ -28,7 +28,7 @@ import { acknowledgeReminder, deleteReminder } from '@/lib/finance/reminders';
 import { toMinor } from '@/lib/money';
 import { resolveUser } from '@/lib/session';
 import { resolveCategory } from '@/lib/finance/categories';
-import { parseOccurredAt } from '@/lib/agent/time';
+import { formatDateInZone, parseOccurredAt } from '@/lib/agent/time';
 
 export interface ActionResult {
   ok: boolean;
@@ -43,6 +43,9 @@ async function session() {
 function refresh() {
   revalidatePath('/');
   revalidatePath('/chat');
+  // The statement reads the same rows. Leaving it stale is how a figure someone
+  // just corrected on the dashboard goes on being wrong one tab away.
+  revalidatePath('/summary');
 }
 
 // ── Transactions ────────────────────────────────────────────────────────────
@@ -103,6 +106,95 @@ export async function addTransaction(formData: FormData): Promise<ActionResult> 
       note: parsed.data.note || null,
       occurredAt: parseOccurredAt(parsed.data.occurredOn, new Date(), timezone),
       source: 'manual',
+      accountId,
+    },
+  });
+
+  refresh();
+  return { ok: true };
+}
+
+const EditTransactionSchema = TransactionSchema.extend({
+  id: z.string().trim().min(1),
+});
+
+/**
+ * Fix an entry that was logged wrong.
+ *
+ * The alternative — delete and re-add — loses the row's `createdAt`, its
+ * `source`, and its `importKey`, which is the thing that stops a re-imported
+ * statement double-counting it. An edit keeps all three, so correcting a typo
+ * cannot quietly re-open the door to a duplicate.
+ */
+export async function updateTransaction(formData: FormData): Promise<ActionResult> {
+  const parsed = EditTransactionSchema.safeParse({
+    id: formData.get('id'),
+    kind: formData.get('kind'),
+    amount: formData.get('amount'),
+    category: formData.get('category'),
+    merchant: formData.get('merchant') || undefined,
+    note: formData.get('note') || undefined,
+    accountId: formData.get('accountId') || undefined,
+    occurredOn: formData.get('occurredOn') || undefined,
+  });
+
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check the form and try again.' };
+  }
+
+  const { userId, currency, timezone } = await session();
+
+  // Scoped read: an id from another ledger comes back null, so the worst a
+  // tampered form body can do is edit nothing.
+  const existing = await prisma.transaction.findFirst({
+    where: { id: parsed.data.id, userId },
+    select: { id: true, occurredAt: true, accountId: true, transferGroupId: true },
+  });
+  if (!existing) return { ok: false, error: 'That transaction no longer exists.' };
+
+  // A transfer is two rows that have to agree with each other — same amount,
+  // same day, opposite directions. Editing one leg through this form would
+  // leave the other saying something else, and both balances would be wrong.
+  if (existing.transferGroupId) {
+    return {
+      ok: false,
+      error: 'A transfer is a pair of entries. Remove it and record it again to change it.',
+    };
+  }
+
+  const amountMinor = toMinor(parsed.data.amount, currency);
+  if (amountMinor <= 0) return { ok: false, error: 'Amount must be greater than zero.' };
+
+  // No merchant hint here, unlike `addTransaction`: a learned rule exists to
+  // beat a *guess*, and this is the user pointing at one row and naming it.
+  // Letting "uber → transport" override them on an explicit edit is the app
+  // arguing with a correction it was given.
+  const category = await resolveCategory(userId, parsed.data.category);
+
+  // Only re-derive the instant when the day actually changed. `parseOccurredAt`
+  // lands a bare date at noon, so re-parsing an untouched date would silently
+  // move the time of every entry someone edits.
+  const currentOn = formatDateInZone(existing.occurredAt, timezone);
+  const occurredAt =
+    parsed.data.occurredOn && parsed.data.occurredOn !== currentOn
+      ? parseOccurredAt(parsed.data.occurredOn, existing.occurredAt, timezone)
+      : existing.occurredAt;
+
+  // Keeps the row where it is when the form had no account field to show
+  // (one account) or named one that isn't theirs — never orphans it.
+  const accountId = parsed.data.accountId
+    ? ((await resolveAccount(userId, parsed.data.accountId)) ?? existing.accountId)
+    : existing.accountId;
+
+  await prisma.transaction.updateMany({
+    where: { id: existing.id, userId },
+    data: {
+      kind: parsed.data.kind,
+      amountMinor,
+      merchant: parsed.data.merchant || null,
+      category,
+      note: parsed.data.note || null,
+      occurredAt,
       accountId,
     },
   });

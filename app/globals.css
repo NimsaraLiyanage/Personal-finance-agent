@@ -116,3 +116,82 @@
     }
   }
 }
+
+/* ── Paper ──────────────────────────────────────────────────────────────────
+   Unlayered on purpose: these rules have to beat the Tailwind utilities on the
+   same elements, and an unlayered declaration outranks every layered one
+   regardless of specificity.
+
+   The app shell is built for a screen — `h-dvh`, `overflow-hidden`, and panes
+   that scroll themselves. Printed as-is that yields exactly one page: whatever
+   happened to be in the viewport, cut off mid-row. So the first job here is
+   handing the page height back to the normal flow. */
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* The shell's flex column and each page's own scroll container. */
+  body > div,
+  main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* Cards read as boxes on screen because of a tint. Paper has no tint, so they
+     read as boxes because of a rule — printing the fill wastes ink and greys
+     the text sitting on it. */
+  .card {
+    background: #fff !important;
+    border-color: #999 !important;
+    box-shadow: none !important;
+  }
+
+  /* The faint greys are tuned for a backlit screen and disappear on paper. */
+  .text-ink-faint,
+  .text-ink-dim {
+    color: #444 !important;
+  }
+
+  /* A statement is the one thing here that genuinely runs to several pages:
+     repeat the column headings and never split a transaction across the fold. */
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  li,
+  section {
+    break-inside: avoid;
+  }
+
+  /* A printed URL beside every link is noise on a page whose links all point
+     back into an app the reader is already using. */
+  a[href] {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

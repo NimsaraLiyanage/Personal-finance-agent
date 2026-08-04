@@ -51,7 +51,9 @@ export default function AccountFilter({
     <div
       role="radiogroup"
       aria-label="Account"
-      className={`flex flex-wrap items-center gap-1 text-xs transition-opacity ${
+      // `no-print`: a control you cannot click is not worth the ink. Which
+      // account the statement covers is printed in the heading instead.
+      className={`no-print flex flex-wrap items-center gap-1 text-xs transition-opacity ${
         pending ? 'opacity-60' : ''
       }`}
     >

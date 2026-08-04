@@ -76,6 +76,7 @@ interface TransactionRow {
   note: string | null;
   occurredAt: Date;
   transferGroupId?: string | null;
+  accountId?: string | null;
   account?: { name: string } | null;
 }
 
@@ -91,6 +92,9 @@ export function toTransactionView(t: TransactionRow): TransactionView {
     note: t.note,
     occurredAt: t.occurredAt.toISOString(),
     transfer: Boolean(t.transferGroupId),
+    // The id as well as the name: the name is what a reader wants, the id is
+    // what an edit form has to preselect.
+    accountId: t.accountId ?? null,
     accountName: t.account?.name ?? null,
   };
 }
@@ -435,11 +439,28 @@ export async function listTransactionsInRange(
   };
 }
 
+/**
+ * Free-text match across the three fields a person could plausibly remember:
+ * who they paid, what they wrote down, and what it was filed under.
+ *
+ * Merchant alone is not enough — half the ledger has no merchant at all, and
+ * the only trace of "the deposit for the wedding hall" is the note.
+ */
+function searchFilter(term: string) {
+  const contains = { contains: term, mode: 'insensitive' as const };
+  return {
+    OR: [{ merchant: contains }, { note: contains }, { category: contains }],
+  };
+}
+
 export async function listTransactions(
   scope: LedgerScope,
   options: {
     period?: PeriodKey;
     category?: string;
+    kind?: 'expense' | 'income';
+    /** Free text, matched against merchant, note and category. */
+    search?: string;
     merchantContains?: string;
     accountId?: string;
     /** Transfers are listed by default; a spending question should pass false. */
@@ -448,12 +469,15 @@ export async function listTransactions(
   } = {},
 ): Promise<{ transactions: TransactionView[]; periodLabel: string }> {
   const window = resolvePeriod(options.period ?? 'this_month', scope.now, scope.timezone);
+  const search = options.search?.trim();
   const rows = await prisma.transaction.findMany({
     where: {
       userId: scope.userId,
       occurredAt: { gte: window.from, lt: window.to },
       ...(options.category ? { category: options.category } : {}),
+      ...(options.kind ? { kind: options.kind } : {}),
       ...(options.accountId ? { accountId: options.accountId } : {}),
+      ...(search ? searchFilter(search) : {}),
       ...(options.merchantContains
         ? { merchant: { contains: options.merchantContains, mode: 'insensitive' as const } }
         : {}),

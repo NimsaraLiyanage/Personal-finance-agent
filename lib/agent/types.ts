@@ -43,6 +43,7 @@ export interface TransactionView {
   occurredAt: string;
   /** Half of a move between the user's own accounts — neither in nor out. */
   transfer: boolean;
+  accountId: string | null;
   accountName: string | null;
 }
 

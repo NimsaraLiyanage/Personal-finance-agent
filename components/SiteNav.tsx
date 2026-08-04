@@ -17,7 +17,9 @@ export default function SiteNav() {
   const pathname = usePathname();
 
   return (
-    <header className="shrink-0 border-b border-line bg-surface">
+    // `no-print`: on paper the app's own chrome is not part of the statement —
+    // the page carries its own printed title instead.
+    <header className="no-print shrink-0 border-b border-line bg-surface">
       {/* The bar's background and border span the window — it is chrome. What
           sits inside it uses the same column as the page, so the logo lands
           directly above the page heading rather than off on its own. */}

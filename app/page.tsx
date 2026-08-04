@@ -81,6 +81,17 @@ export default async function DashboardPage({
     typeof params.account === 'string' ? params.account : undefined,
   );
 
+  // Search is deliberately not bounded by the period tabs. Someone searching
+  // for "wedding hall" is looking for a thing they remember, not a thing that
+  // happened in the last four weeks, and a search box that cannot find an entry
+  // you know exists reads as broken. So a filtered list widens to the whole
+  // ledger and says so — the panel's label switches to "All time".
+  const search = typeof params.q === 'string' ? params.q.trim().slice(0, 60) : '';
+  const categoryFilter = typeof params.cat === 'string' ? params.cat.slice(0, 40) : '';
+  const kindFilter =
+    params.kind === 'expense' || params.kind === 'income' ? params.kind : undefined;
+  const filtering = Boolean(search || categoryFilter || kindFilter);
+
   const [
     summary,
     flow,
@@ -100,7 +111,14 @@ export default async function DashboardPage({
       accountId: accountId ?? undefined,
     }),
     listBudgetStatuses(scope),
-    listTransactions(scope, { period, limit: 25, accountId: accountId ?? undefined }),
+    listTransactions(scope, {
+      period: filtering ? 'all_time' : period,
+      limit: filtering ? 60 : 25,
+      accountId: accountId ?? undefined,
+      search: search || undefined,
+      category: categoryFilter || undefined,
+      kind: kindFilter,
+    }),
     listActiveReminders(scope),
     latestBriefing(user.userId),
     listCategories(user.userId),
@@ -173,6 +191,10 @@ export default async function DashboardPage({
             transactions={ledger.transactions}
             periodLabel={ledger.periodLabel}
             timezone={user.timezone}
+            categories={categories}
+            accounts={balances.accounts}
+            today={formatDateInZone(new Date(), user.timezone)}
+            filtered={filtering}
           />
         </div>
 

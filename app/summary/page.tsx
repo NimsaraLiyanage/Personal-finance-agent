@@ -8,6 +8,7 @@
 import Link from 'next/link';
 
 import AccountFilter from '@/components/dashboard/AccountFilter';
+import StatementActions from '@/components/summary/StatementActions';
 import { CONTAINER } from '@/components/ui/container';
 import { listAccounts, resolveAccount } from '@/lib/finance/accounts';
 import { formatMoney } from '@/lib/money';
@@ -31,7 +32,13 @@ export default async function SummaryPage({
 
   if (!user) {
     return (
-      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey} filter={null}>
+      <Shell
+        month={month.label}
+        monthKey={month.key}
+        previousKey={month.previousKey}
+        nextKey={month.nextKey}
+        filter={null}
+      >
         <Empty>
           Nothing here yet. Add an entry on the{' '}
           <Link href="/" className="text-accent hover:underline">
@@ -58,6 +65,7 @@ export default async function SummaryPage({
   );
   const accounts = await listAccounts(user.userId, user.currency);
   const filter = <AccountFilter accounts={accounts} current={accountId} />;
+  const accountName = accountId ? (accounts.find((a) => a.id === accountId)?.name ?? null) : null;
 
   const ledger = await listTransactionsInRange(scope, month.from, month.to, {
     accountId: accountId ?? undefined,
@@ -81,7 +89,15 @@ export default async function SummaryPage({
 
   if (ledger.transactions.length === 0) {
     return (
-      <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey} filter={filter} accountId={accountId}>
+      <Shell
+        month={month.label}
+        monthKey={month.key}
+        previousKey={month.previousKey}
+        nextKey={month.nextKey}
+        filter={filter}
+        accountId={accountId}
+        accountName={accountName}
+      >
         <Empty>
           No transactions recorded in {month.label}
           {accountId ? ' on this account' : ''}.
@@ -91,7 +107,16 @@ export default async function SummaryPage({
   }
 
   return (
-    <Shell month={month.label} previousKey={month.previousKey} nextKey={month.nextKey} filter={filter} accountId={accountId}>
+    <Shell
+      month={month.label}
+      monthKey={month.key}
+      previousKey={month.previousKey}
+      nextKey={month.nextKey}
+      filter={filter}
+      accountId={accountId}
+      accountName={accountName}
+      exportable
+    >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="card overflow-hidden">
           {/* The table scrolls inside its own box on a narrow screen rather
@@ -231,7 +256,7 @@ export default async function SummaryPage({
             </section>
           )}
 
-          <p className="px-1 text-[11px] leading-relaxed text-ink-faint">
+          <p className="no-print px-1 text-[11px] leading-relaxed text-ink-faint">
             Charts, budgets and manual entry live on the{' '}
             <Link href="/" className="text-accent hover:underline">
               dashboard
@@ -266,51 +291,67 @@ function GlanceRow({
 
 function Shell({
   month,
+  monthKey,
   previousKey,
   nextKey,
   filter,
   accountId = null,
+  accountName = null,
+  exportable = false,
   children,
 }: {
   month: string;
+  monthKey: string;
   previousKey: string;
   nextKey: string | null;
   filter: React.ReactNode;
   accountId?: string | null;
+  accountName?: string | null;
+  /** False before there is a ledger — an export of nothing is a broken promise. */
+  exportable?: boolean;
   children: React.ReactNode;
 }) {
   // Month arrows must carry the filter, or stepping back a month silently
   // widens the view back to every account.
-  const href = (monthKey: string) =>
-    `/summary?month=${monthKey}${accountId ? `&account=${accountId}` : ''}`;
+  const href = (key: string) => `/summary?month=${key}${accountId ? `&account=${accountId}` : ''}`;
   return (
     <main className="scroll-quiet h-full overflow-y-auto">
       <div className={`${CONTAINER} space-y-4 py-5 sm:py-6`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Summary</h1>
-            <p className="text-xs text-ink-faint">{month}</p>
+            <p className="text-xs text-ink-faint">
+              {month}
+              {accountName && ` · ${accountName}`}
+            </p>
+            {/* On paper the page has no navigation bar to say whose ledger this
+                is, and a printed statement with no title is just a table. */}
+            <p className="print-only text-xs text-ink-faint">Tally — monthly statement</p>
           </div>
 
-          {/* Plain links, not buttons: month navigation should survive a
-              reload and be shareable, and it needs no JavaScript to work. */}
-          <nav aria-label="Month" className="flex items-center gap-1">
-            <MonthLink href={href(previousKey)} label="Previous month">
-              ←
-            </MonthLink>
-            {nextKey ? (
-              <MonthLink href={href(nextKey)} label="Next month">
-                →
+          <div className="flex items-center gap-2">
+            {exportable && <StatementActions monthKey={monthKey} accountId={accountId} />}
+
+            {/* Plain links, not buttons: month navigation should survive a
+                reload and be shareable, and it needs no JavaScript to work. */}
+            <nav aria-label="Month" className="no-print flex items-center gap-1">
+              <MonthLink href={href(previousKey)} label="Previous month">
+                ←
               </MonthLink>
-            ) : (
-              <span
-                aria-hidden
-                className="grid size-8 place-items-center rounded-full border border-line text-sm text-ink-faint/40"
-              >
-                →
-              </span>
-            )}
-          </nav>
+              {nextKey ? (
+                <MonthLink href={href(nextKey)} label="Next month">
+                  →
+                </MonthLink>
+              ) : (
+                <span
+                  aria-hidden
+                  className="grid size-8 place-items-center rounded-full border border-line text-sm text-ink-faint/40"
+                >
+                  →
+                </span>
+              )}
+            </nav>
+          </div>
         </div>
 
         {filter}
